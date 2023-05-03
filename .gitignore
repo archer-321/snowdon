@@ -1,0 +1,6 @@
+# Rust-specific directories
+/target
+Cargo.lock
+
+# IDE-Specific directories
+/.idea

@@ -33,10 +33,13 @@ active [3] proctype Snowflake() {
     int old_state, old_timestamp, old_sequence, timestamp, sequence, new_snowflake, i, j;
     bool no_hole;
 
+    // Atomically load the current state once. If the CAS loop has to repeat the operation, the value
+    // is provided by the CAS operation.
+    old_state = state;
+
     do
     ::
-        // Atomically load the current state
-        old_state = state;
+        // At this point, `old_state` contains the current state for this operation.
 
         // Obtain a timestamp. We obtain the timestamp *after* loading the old state, as this allows
         // us to detect non-monotonic system clocks. If we'd load this variable before we load the
@@ -93,7 +96,8 @@ active [3] proctype Snowflake() {
                 state = new_snowflake;
                 break;
             :: else ->
-                skip;
+                // Store the current state and loop
+                old_state = state;
             fi
         }
     od

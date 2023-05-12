@@ -212,9 +212,9 @@ where
 }
 
 impl<L, E> Generator<L, E>
-    where
-        L: Layout,
-        E: Epoch,
+where
+    L: Layout,
+    E: Epoch,
 {
     /// Generates a new snowflake using the *blocking* snowflake implementation.
     ///
@@ -341,12 +341,14 @@ impl<L, E> Generator<L, E>
     #[cfg(any(feature = "lock-free", doc))]
     #[cfg_attr(docsrs, doc(cfg(feature = "lock-free")))]
     pub fn generate_lock_free(&self) -> Result<Snowflake<L, E>> {
+        // Initially, load the last generated snowflake once. If the CAS loop below has to loop, we overwrite this value
+        // with the result of our CAS operation.
+        let mut last_snowflake = self.last_snowflake_atomic.load(atomic::Ordering::Acquire);
         // This CAS loop is the same as `AtomicU64::fetch_update`. However, we use the
         // manual loop implementation, as our update algorithm (the snowflake
         // generation) is fairly complex, and implementing the loop manually more
         // closely matches the model implemented in the `spin` directory.
         loop {
-            let last_snowflake = self.last_snowflake_atomic.load(atomic::Ordering::Acquire);
             let time = Self::get_timestamp()?;
             let last_timestamp = L::get_timestamp(last_snowflake);
             let sequence = match last_timestamp.cmp(&time) {
@@ -368,20 +370,22 @@ impl<L, E> Generator<L, E>
                 }
             };
             let new_snowflake = L::construct_snowflake(time, sequence);
-            if self
-                .last_snowflake_atomic
-                .compare_exchange_weak(
-                    last_snowflake,
-                    new_snowflake,
-                    atomic::Ordering::AcqRel,
-                    atomic::Ordering::Acquire,
-                )
-                .is_ok()
-            {
-                return Ok(Snowflake {
-                    inner: new_snowflake,
-                    _marker: PhantomData,
-                });
+            match self.last_snowflake_atomic.compare_exchange_weak(
+                last_snowflake,
+                new_snowflake,
+                atomic::Ordering::AcqRel,
+                atomic::Ordering::Acquire,
+            ) {
+                Ok(_) => {
+                    return Ok(Snowflake {
+                        inner: new_snowflake,
+                        _marker: PhantomData,
+                    });
+                }
+                Err(current_value) => {
+                    // Our CAS operation failed; store the current value and try again
+                    last_snowflake = current_value
+                }
             }
         }
     }

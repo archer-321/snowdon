@@ -1,6 +1,6 @@
 # This file contians unstable rustfmt options that developers should enable when changing this crate.
 # As these options require the use of a nightly toolchain, however, they're not added to the default configuration file.
-# To use these options, exclude `.rustfmt.toml` in your `.git/info/exclude` file and append this file to it.
+# To use these options, append this file to `.rustfmt.toml` and run `git update-index --assume-unchanged .rustfmt.toml`.
 
 unstable_features = true
 format_strings = true

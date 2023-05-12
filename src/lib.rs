@@ -138,6 +138,9 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
+mod classic;
+mod comparator;
+
 /// A thread-safe snowflake generator for a given snowflake [layout](Layout) and [epoch](Epoch).
 ///
 /// The generator has two type parameters to identify your snowflake format at compile-time. Refer to the example below
@@ -425,9 +428,9 @@ where
 }
 
 impl<L, E> Default for Generator<L, E>
-    where
-        L: Layout,
-        E: Epoch,
+where
+    L: Layout,
+    E: Epoch,
 {
     /// Returns a new generator that has generated a single snowflake in the first millisecond of its epoch.
     ///
@@ -888,18 +891,18 @@ pub trait Epoch {
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct Snowflake<L, E>
-    where
-        L: Layout,
-        E: Epoch,
+where
+    L: Layout,
+    E: Epoch,
 {
     inner: u64,
     _marker: PhantomData<(L, E)>,
 }
 
 impl<L, E> Snowflake<L, E>
-    where
-        L: Layout,
-        E: Epoch,
+where
+    L: Layout,
+    E: Epoch,
 {
     /// Returns the snowflake for the given integer representation.
     ///
@@ -972,9 +975,9 @@ impl<L, E> Snowflake<L, E>
 }
 
 impl<L, E> Clone for Snowflake<L, E>
-    where
-        L: Layout,
-        E: Epoch,
+where
+    L: Layout,
+    E: Epoch,
 {
     fn clone(&self) -> Self {
         *self
@@ -982,15 +985,16 @@ impl<L, E> Clone for Snowflake<L, E>
 }
 
 impl<L, E> Copy for Snowflake<L, E>
-    where
-        L: Layout,
-        E: Epoch,
-{}
+where
+    L: Layout,
+    E: Epoch,
+{
+}
 
 impl<L, E> Display for Snowflake<L, E>
-    where
-        L: Layout,
-        E: Epoch,
+where
+    L: Layout,
+    E: Epoch,
 {
     /// Displays the snowflake as a decimal-encoded integer.
     ///
@@ -1001,9 +1005,9 @@ impl<L, E> Display for Snowflake<L, E>
 }
 
 impl<L, E> PartialEq for Snowflake<L, E>
-    where
-        L: Layout,
-        E: Epoch,
+where
+    L: Layout,
+    E: Epoch,
 {
     fn eq(&self, other: &Self) -> bool {
         self.inner == other.inner
@@ -1011,15 +1015,16 @@ impl<L, E> PartialEq for Snowflake<L, E>
 }
 
 impl<L, E> Eq for Snowflake<L, E>
-    where
-        L: Layout,
-        E: Epoch,
-{}
+where
+    L: Layout,
+    E: Epoch,
+{
+}
 
 impl<L, E> PartialOrd for Snowflake<L, E>
-    where
-        L: Layout,
-        E: Epoch,
+where
+    L: Layout,
+    E: Epoch,
 {
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         Some(self.cmp(other))
@@ -1027,522 +1032,17 @@ impl<L, E> PartialOrd for Snowflake<L, E>
 }
 
 impl<L, E> Ord for Snowflake<L, E>
-    where
-        L: Layout,
-        E: Epoch,
+where
+    L: Layout,
+    E: Epoch,
 {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         self.inner.cmp(&other.inner)
     }
 }
 
-/// A type to compare [`Snowflake`]s with timestamps.
-///
-/// Snowflakes already form a total order. However, this is only loosely based on the snowflake's timestamp, as the
-/// entire snowflake is taken into consideration when comparing two snowflakes. I.e., if your snowflake layout contains
-/// instance-specific constant parts like a machine ID, a snowflake that was generated *after* another snowflake can
-/// still be smaller.
-///
-/// To compare a snowflake with a given timestamp, simply create a comparator using
-/// [`from_system_time`](Self::from_system_time) or [`Snowflake::get_comparator`].
-///
-/// # Limitations
-///
-/// Note that some timestamps that can theoretically be represented in a `Snowflake` can't be represented by this type.
-/// To exceed this type's limit, you'd need a timestamp that's roughly 585 million years after the Unix epoch, however.
-/// In those cases, this type's constructors return an error instead. If you don't need to worry about timestamps this
-/// large in your implementation, you should be able to unwrap all [`Result`]s returned by this type's associated
-/// functions.
-#[derive(Debug, Clone, Copy)]
-#[repr(transparent)]
-pub struct SnowflakeComparator {
-    timestamp: u64,
-}
-
-impl SnowflakeComparator {
-    /// Creates a new snowflake comparator for the given system time.
-    ///
-    /// If the system time can't be represented by the underlying data type, this returns
-    /// [`Error::FatalSnowflakeExhaustion`] instead. If `time` precedes the Unix epoch, this returns
-    /// [`Error::InvalidEpoch`] instead.
-    ///
-    /// If you're sure your timestamp doesn't precede the Unix epoch and doesn't exceed the limits discussed in the
-    /// [structure documentation](Self#limitations), you can safely unwrap this function's result.
-    ///
-    /// If you want to create a comparator from a snowflake's timestamp, you should use [`Snowflake::get_comparator`]
-    /// instead.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use snowdon::{Snowflake, SnowflakeComparator};
-    /// use std::time::{Duration, SystemTime};
-    ///
-    /// // This example uses Twitter's snowflake layout and epoch
-    /// let snowflake = Snowflake::from_raw(1541815603606036480).unwrap();
-    /// // Create a comparator for the first second of 2022
-    /// let comparator = SnowflakeComparator::from_system_time(
-    ///     SystemTime::UNIX_EPOCH + Duration::from_secs(1640995200),
-    /// )
-    /// .unwrap();
-    /// assert!(comparator < snowflake);
-    /// // Create a comparator for the first second of 2023
-    /// let comparator = SnowflakeComparator::from_system_time(
-    ///     SystemTime::UNIX_EPOCH + Duration::from_secs(1672531200),
-    /// )
-    /// .unwrap();
-    /// assert!(comparator > snowflake);
-    /// # use snowdon::{ClassicLayout, Epoch, MachineId};
-    /// # struct SnowflakeParams;
-    /// # impl MachineId for SnowflakeParams {
-    /// #     fn machine_id() -> u64 {
-    /// #         unimplemented!()
-    /// #     }
-    /// # }
-    /// # impl Epoch for SnowflakeParams {
-    /// #     fn millis_since_unix() -> u64 {
-    /// #         1288834974657
-    /// #     }
-    /// # }
-    /// # fn foo(_foo: Snowflake<ClassicLayout<SnowflakeParams>, SnowflakeParams>) {}
-    /// # foo(snowflake);
-    /// ```
-    pub fn from_system_time(time: SystemTime) -> Result<Self> {
-        let timestamp = time
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .map_err(|_| Error::InvalidEpoch)?
-            .as_millis();
-        if timestamp > u64::MAX as u128 {
-            return Err(Error::FatalSnowflakeExhaustion);
-        }
-        Ok(Self {
-            timestamp: timestamp as u64,
-        })
-    }
-
-    /// Creates a new snowflake comparator for the given timestamp.
-    ///
-    /// The timestamp is interpreted in the context of the [`Epoch`] provided as a type parameter. I.e., it's the number
-    /// of milliseconds since the start of the given epoch.
-    ///
-    /// If the underlying data type can't represent the requested timestamp, this function returns
-    /// [`Error::FatalSnowflakeExhaustion`] instead.
-    ///
-    /// If you want to avoid passing your snowflake epoch to this function everytime you compare snowflakes with a
-    /// timestamp, you might want to use [`from_system_time`](Self::from_system_time) instead.
-    ///
-    /// You should consider using [`Snowflake::get_comparator`] instead if you're creating a comparator using another
-    /// snowflake's timestamp.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use snowdon::{Snowflake, SnowflakeComparator};
-    /// use std::time::{Duration, SystemTime};
-    ///
-    /// #[derive(Debug)]
-    /// struct TwitterEpoch;
-    ///
-    /// impl Epoch for TwitterEpoch {
-    ///     fn millis_since_unix() -> u64 {
-    ///         // The epoch used by Twitter
-    ///         1288834974657
-    ///     }
-    /// }
-    ///
-    /// // This example uses Twitter's snowflake layout and epoch
-    /// let snowflake = Snowflake::from_raw(1541815603606036480).unwrap();
-    /// // Create a comparator using the timestamp of our snowflake
-    /// let comparator = SnowflakeComparator::from_timestamp::<TwitterEpoch>(
-    ///     1541815603606036480 >> 22,
-    /// )
-    /// .unwrap();
-    /// assert_eq!(snowflake, comparator);
-    /// // Instead of constructing the comparator ourselves, we can use
-    /// // `get_comparator`:
-    /// assert_eq!(comparator, snowflake.get_comparator().unwrap());
-    /// // Create a comparator for the first second of 2022
-    /// let comparator =
-    ///     SnowflakeComparator::from_timestamp::<TwitterEpoch>(352160225343).unwrap();
-    /// assert!(comparator < snowflake);
-    /// # use snowdon::{ClassicLayout, Epoch, MachineId};
-    /// # #[derive(Debug)]
-    /// # struct SnowflakeParams;
-    /// # impl MachineId for SnowflakeParams {
-    /// #     fn machine_id() -> u64 {
-    /// #         unimplemented!()
-    /// #     }
-    /// # }
-    /// # fn foo(_foo: Snowflake<ClassicLayout<SnowflakeParams>, TwitterEpoch>) {}
-    /// # foo(snowflake);
-    /// ```
-    pub fn from_timestamp<E>(timestamp: u64) -> Result<Self>
-        where
-            E: Epoch,
-    {
-        Ok(Self {
-            timestamp: Self::convert_epoch_timestamp::<E>(timestamp)?,
-        })
-    }
-
-    /// Creates a new snowflake comparator from the given timestamp.
-    ///
-    /// Note that the timestamp passed to this function is the number of milliseconds since the **Unix epoch**. I.e.,
-    /// if the timestamp you want to compare your snowflakes with uses the snowflakes' epoch, you'll have to convert it
-    /// to a timestamp using the Unix epoch before passing it to this function.
-    ///
-    /// Usually, you shouldn't use this function directly. Instead, use [`from_system_time`](Self::from_system_time) or
-    /// [`from_timestamp`](Self::from_timestamp) to get a snowflake comparator that works with your snowflakes.
-    ///
-    /// If you want to create a comparator from a snowflake's timestamp, you should use [`Snowflake::get_comparator`]
-    /// instead.
-    pub fn from_raw_timestamp(timestamp: u64) -> Self {
-        Self { timestamp }
-    }
-
-    /// Converts the given epoch-based timestamp to a timestamp using the Unix epoch.
-    ///
-    /// If the underlying data type doesn't support the requested timestamp, this returns
-    /// [`Error::FatalSnowflakeExhaustion`] instead.
-    ///
-    /// This function only returns errors on overflows. I.e., any timestamp that can be represented in a u64 using the
-    /// Unix epoch is guaranteed to be smaller than the custom epoch timestamp passed to this function if this returns
-    /// an error.
-    fn convert_epoch_timestamp<E>(timestamp: u64) -> Result<u64>
-        where
-            E: Epoch,
-    {
-        let timestamp = SystemTime::UNIX_EPOCH
-            .checked_add(Duration::from_millis(
-                E::millis_since_unix()
-                    .checked_add(timestamp)
-                    .ok_or(Error::FatalSnowflakeExhaustion)?,
-            ))
-            .ok_or(Error::FatalSnowflakeExhaustion)?
-            .duration_since(SystemTime::UNIX_EPOCH)
-            // We've constructed the timestamp using a positive duration and the Unix epoch above, so this will always
-            // be after the Unix epoch. Thus, we can safely unwrap this result.
-            .unwrap()
-            .as_millis();
-        if timestamp > u64::MAX as u128 {
-            return Err(Error::FatalSnowflakeExhaustion);
-        }
-        Ok(timestamp as u64)
-    }
-}
-
-impl PartialEq for SnowflakeComparator {
-    /// Returns whether this snowflake comparator represents the same timestamp as the other.
-    fn eq(&self, other: &Self) -> bool {
-        self.timestamp == other.timestamp
-    }
-}
-
-impl<L, E> PartialEq<Snowflake<L, E>> for SnowflakeComparator
-    where
-        L: Layout,
-        E: Epoch,
-{
-    /// Returns whether this snowflake comparator represents the same timestamp as the provided snowflake.
-    fn eq(&self, other: &Snowflake<L, E>) -> bool {
-        let other = match Self::convert_epoch_timestamp::<E>(other.get_timestamp_raw()) {
-            Ok(other) => other,
-            Err(_) => {
-                // If the provided snowflake's timestamp can't be represented by an unsigned 64-bit integer, it's
-                // guaranteed to be different from this comparator's timestamp (which we know is representable)
-                return false;
-            }
-        };
-        self.timestamp == other
-    }
-}
-
-impl<L, E> PartialEq<SnowflakeComparator> for Snowflake<L, E>
-    where
-        L: Layout,
-        E: Epoch,
-{
-    /// Returns whether this snowflake's timestamp is the same as the provided comparator's timestamp.
-    fn eq(&self, other: &SnowflakeComparator) -> bool {
-        let timestamp = match SnowflakeComparator::convert_epoch_timestamp::<E>(self.get_timestamp_raw()) {
-            Ok(timestamp) => timestamp,
-            Err(_) => {
-                // If this snowflake's timestamp can't be represented in a u64 using the Unix epoch, it's guaranteed to
-                // be different from the given comparator's timestamp (which can be represented)
-                return false;
-            }
-        };
-        timestamp == other.timestamp
-    }
-}
-
-impl Eq for SnowflakeComparator {}
-
-impl PartialOrd for SnowflakeComparator {
-    /// Returns how this snowflake comparator compares to the other comparator.
-    ///
-    /// Specifically, this returns [`Ordering::Less`](cmp::Ordering::Less), [`Ordering::Equal`](cmp::Ordering::Equal),
-    /// or [`Ordering::Greater`](cmp::Ordering::Greater) if this comparator's timestamp precedes the other comparator's
-    /// timestamp, is equal to it, or succeeds it, respectively.
-    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl<L, E> PartialOrd<Snowflake<L, E>> for SnowflakeComparator
-    where
-        L: Layout,
-        E: Epoch,
-{
-    /// Returns how this snowflake comparator compares to the provided snowflake.
-    ///
-    /// Specifically, this returns [`Ordering::Less`](cmp::Ordering::Less), [`Ordering::Equal`](cmp::Ordering::Equal),
-    /// or [`Ordering::Greater`](cmp::Ordering::Greater) if this comparator's timestamp precedes the snowflake's
-    /// timestamp, is equal to it, or succeeds it, respectively.
-    fn partial_cmp(&self, other: &Snowflake<L, E>) -> Option<cmp::Ordering> {
-        // If the timestamp overflows a u64, the timestamp in this comparator is guaranteed to be less.
-        // For now, this will essentially never happen, but we can consider using more bits in about 585 million years
-        // when our Unix-epoch-based approach stops working Kappa
-        let other = match Self::convert_epoch_timestamp::<E>(other.get_timestamp_raw()) {
-            Ok(other) => other,
-            Err(_) => return Some(cmp::Ordering::Less),
-        };
-        Some(self.timestamp.cmp(&other))
-    }
-}
-
-impl<L, E> PartialOrd<SnowflakeComparator> for Snowflake<L, E>
-    where
-        L: Layout,
-        E: Epoch,
-{
-    /// Returns how this snowflake compares to the given snowflake comparator.
-    ///
-    /// Specifically, this returns [`Ordering::Less`](cmp::Ordering::Less), [`Ordering::Equal`](cmp::Ordering::Equal),
-    /// or [`Ordering::Greater`](cmp::Ordering::Greater) if this snowflake's timestamp precedes the comparator's
-    /// timestamp, is equal to it, or succeeds it, respectively.
-    fn partial_cmp(&self, other: &SnowflakeComparator) -> Option<cmp::Ordering> {
-        // Similarly to the `PartialOrd` implementation above, our timestamp is guaranteed to be greater than the
-        // comparator if it would overflow a u64
-        let timestamp = match SnowflakeComparator::convert_epoch_timestamp::<E>(self.get_timestamp_raw()) {
-            Ok(timestamp) => timestamp,
-            Err(_) => return Some(cmp::Ordering::Greater),
-        };
-        Some(timestamp.cmp(&other.timestamp))
-    }
-}
-
-impl Ord for SnowflakeComparator {
-    /// Returns how this snowflake comparator compares to the other comparator.
-    ///
-    /// Specifically, this returns [`Ordering::Less`](cmp::Ordering::Less), [`Ordering::Equal`](cmp::Ordering::Equal),
-    /// or [`Ordering::Greater`](cmp::Ordering::Greater) if this comparator's timestamp precedes the other comparator's
-    /// timestamp, is equal to it, or succeeds it, respectively.
-    fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.timestamp.cmp(&other.timestamp)
-    }
-}
-
-/// A [`Layout`] implementation for the classic snowflake layout introduced by Twitter.
-///
-/// Snowflakes constructed with this layout consist of a leading `0` bit, 41 bits for a timestamp in milliseconds, 10
-/// bits for an instance ID, and 12 bits for the sequence number. The leading `0` bit guarantees that snowflakes with
-/// this layout keep their properties (namely, monotonicity) when converted into signed 64-bit integers.
-///
-/// Note that this layout doesn't specify the snowflake's epoch, however. Even when using this layout, you'll have to
-/// specify your own epoch by implementing [`Epoch`].
-///
-/// # Example
-///
-/// ```
-/// use snowdon::{
-///     ClassicLayout, ClassicLayoutSnowflakeExtension, Epoch, Generator,
-///     MachineId, Snowflake,
-/// };
-///
-/// struct SnowflakeParams;
-///
-/// impl Epoch for SnowflakeParams {
-///     fn millis_since_unix() -> u64 {
-///         // The epoch used by Twitter for their snowflake IDs
-///         1288834974657
-///     }
-/// }
-///
-/// impl MachineId for SnowflakeParams {
-///     fn machine_id() -> u64 {
-///         // Somehow obtain this machine's ID (e.g. from the private IP
-///         // address or a configuration file)
-/// #       0
-///     }
-/// }
-///
-/// // Make our snowflake specification available to the rest of the application
-/// type MySnowflake =
-///     Snowflake<ClassicLayout<SnowflakeParams>, SnowflakeParams>;
-/// type MySnowflakeGenerator =
-///     Generator<ClassicLayout<SnowflakeParams>, SnowflakeParams>;
-///
-/// // Use our snowflake format
-/// let snowflake = MySnowflake::from_raw(1541815603606036480).unwrap();
-/// assert_eq!(367597485448, snowflake.get_timestamp_raw());
-/// assert_eq!(0x017A, snowflake.get_machine_id());
-/// assert_eq!(0, snowflake.get_sequence_number());
-/// ```
-#[derive(Debug)]
-pub struct ClassicLayout<I>
-    where
-        I: MachineId,
-{
-    _marker: PhantomData<I>,
-}
-
-impl<I> ClassicLayout<I>
-    where
-        I: MachineId,
-{
-    const TIMESTAMP_BITS: usize = 41;
-    const TIMESTAMP_MASK: u64 =
-        ((1 << Self::TIMESTAMP_BITS) - 1) << (Self::MACHINE_ID_BITS + Self::SEQUENCE_NUMBER_BITS);
-    const MACHINE_ID_BITS: usize = 10;
-    const MACHINE_ID_MASK: u64 = ((1 << Self::MACHINE_ID_BITS) - 1) << Self::SEQUENCE_NUMBER_BITS;
-    const SEQUENCE_NUMBER_BITS: usize = 12;
-    const SEQUENCE_NUMBER_MASK: u64 = (1 << Self::SEQUENCE_NUMBER_BITS) - 1;
-
-    /// Returns the machine ID of the given snowflake.
-    ///
-    /// Usually, you shouldn't call this function directly. Instead, use
-    /// [`get_machine_id`](ClassicLayoutSnowflakeExtension::get_machine_id) directly on the snowflake by importing
-    /// `ClassicLayoutSnowflakeExtension`.
-    #[inline]
-    pub fn get_machine_id(input: u64) -> u64 {
-        (input & Self::MACHINE_ID_MASK) >> Self::SEQUENCE_NUMBER_BITS
-    }
-}
-
-impl<I> Layout for ClassicLayout<I>
-    where
-        I: MachineId,
-{
-    #[inline]
-    fn construct_snowflake(timestamp: u64, sequence_number: u64) -> u64 {
-        assert!(!Self::exceeds_timestamp(timestamp) && !Self::exceeds_sequence_number(sequence_number));
-        (timestamp << (Self::MACHINE_ID_BITS + Self::SEQUENCE_NUMBER_BITS))
-            | (I::machine_id() << Self::SEQUENCE_NUMBER_BITS)
-            | sequence_number
-    }
-
-    #[inline]
-    fn get_timestamp(input: u64) -> u64 {
-        (input & Self::TIMESTAMP_MASK) >> (Self::MACHINE_ID_BITS + Self::SEQUENCE_NUMBER_BITS)
-    }
-
-    #[inline]
-    fn exceeds_timestamp(input: u64) -> bool {
-        input >= 1 << Self::TIMESTAMP_BITS
-    }
-
-    #[inline]
-    fn get_sequence_number(input: u64) -> u64 {
-        input & Self::SEQUENCE_NUMBER_MASK
-    }
-
-    #[inline]
-    fn exceeds_sequence_number(input: u64) -> bool {
-        input >= 1 << Self::SEQUENCE_NUMBER_BITS
-    }
-
-    #[inline]
-    fn is_valid_snowflake(input: u64) -> bool {
-        // Check whether the 64th bit is set to 0
-        input < 1 << 63
-    }
-}
-
-/// An extension for [`Snowflake`]s to get the snowflake's machine ID.
-///
-/// This trait is implemented for all snowflakes that use the [`ClassicLayout`] layout implementation.
-///
-/// # Example
-///
-/// ```
-/// # use snowdon::{Epoch, MachineId};
-/// use snowdon::{
-///     ClassicLayout, ClassicLayoutSnowflakeExtension, Generator, Snowflake,
-/// };
-/// # struct SnowflakeParams;
-/// # impl Epoch for SnowflakeParams {
-/// #     fn millis_since_unix() -> u64 {
-/// #         // The epoch used by Twitter for their snowflake IDs
-/// #         1288834974657
-/// #     }
-/// # }
-/// # impl MachineId for SnowflakeParams {
-/// #     fn machine_id() -> u64 {
-/// #         // Somehow obtain this machine's ID (e.g. from the private IP
-/// #         // address or a configuration file)
-/// #        0
-/// #     }
-/// # }
-///
-/// type MySnowflake =
-///     Snowflake<ClassicLayout<SnowflakeParams>, SnowflakeParams>;
-/// type MySnowflakeGenerator =
-///     Generator<ClassicLayout<SnowflakeParams>, SnowflakeParams>;
-///
-/// let snowflake = MySnowflake::from_raw(1541815603606036480).unwrap();
-/// assert_eq!(0x017A, snowflake.get_machine_id());
-/// assert_eq!(
-///     snowflake.get_machine_id(),
-///     ClassicLayout::<SnowflakeParams>::get_machine_id(snowflake.get())
-/// );
-/// ```
-pub trait ClassicLayoutSnowflakeExtension {
-    /// Returns the snowflake's machine ID.
-    ///
-    /// Refer to the [trait documentation](Self) for an example.
-    fn get_machine_id(&self) -> u64;
-
-    /// Returns this snowflake as a positive signed integer.
-    ///
-    /// This layout guarantees that the first bit of a snowflake generated with it is `0`, so snowflakes using the
-    /// `ClassicLayout` can safely be serialized as a signed 64-bit integer.
-    fn get_i64(&self) -> i64;
-}
-
-impl<I, E> ClassicLayoutSnowflakeExtension for Snowflake<ClassicLayout<I>, E>
-    where
-        I: MachineId,
-        E: Epoch,
-{
-    #[inline]
-    fn get_machine_id(&self) -> u64 {
-        ClassicLayout::<I>::get_machine_id(self.get())
-    }
-
-    #[inline]
-    fn get_i64(&self) -> i64 {
-        // This layout guarantees a constant `0` as the first bit. I.e., we can safely convert this to a signed integer
-        // without having to worry about the resulting integer being negative.
-        self.inner as i64
-    }
-}
-
-/// A trait that defines a [`Snowflake`]'s constant machine ID.
-///
-/// This trait only requires a single associated function. I.e., there's no instance available when determining the
-/// machine ID. This is an intentional design decision to discourage dynamic implementations of this value. Regardless
-/// of how you determine this machine's unique ID, it's important that this function always returns the same value.
-///
-/// There isn't a single machine ID implementation that we could encourage here, so we're not providing an example.
-/// If your implementation requires accessing remote resources to determine this machine's ID, however, you should
-/// consider using the `lazy_static` crate to avoid having to re-obtain this ID for every generated snowflake.
-pub trait MachineId {
-    /// Returns this machine's unique ID.
-    ///
-    /// The returned ID must remain constant throughout the runtime of this instance.
-    fn machine_id() -> u64;
-}
+pub use classic::{ClassicLayout, ClassicLayoutSnowflakeExtension, MachineId};
+pub use comparator::SnowflakeComparator;
 
 /// Errors that can occur when generating or using a [`Snowflake`].
 #[derive(Debug)]

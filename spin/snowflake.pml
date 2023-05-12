@@ -39,9 +39,9 @@ active [3] proctype Snowflake() {
         old_state = state;
 
         // Obtain a timestamp. We obtain the timestamp *after* loading the old state, as this allows
-        // us to detect non-monotonous system clocks. If we'd load this variable before we load the
+        // us to detect non-monotonic system clocks. If we'd load this variable before we load the
         // state, another thread could interleave and update the state variable with a timestamp in
-        // the future. The code below would incorrectly interpret this as a non-monotonous clock,
+        // the future. The code below would incorrectly interpret this as a non-monotonic clock,
         // then.
         timestamp = current_time;
 
@@ -75,8 +75,8 @@ active [3] proctype Snowflake() {
                     skip;
                 fi
             ::  else ->
-                // Non-monotonous clock - Our actual implementation would return an error here, but
-                // the clock implementation in this model is strictly monotonous, so we (hopefully)
+                // Non-monotonic clock - Our actual implementation would return an error here, but
+                // the clock implementation in this model is strictly monotonic, so we (hopefully)
                 // won't end up here
                 assert(false);
             fi
@@ -176,8 +176,8 @@ active [3] proctype Snowflake() {
 
 // A naive time implementation.
 //
-// Note that we're not testing non-monotonous system clock behaviour with this model. Refer to the
-// "Non-monotonous clock" comment and the "Obtain a timestamp" comment in Snowflake for an overview
+// Note that we're not testing non-monotonic system clock behaviour with this model. Refer to the
+// "Non-monotonic clock" comment and the "Obtain a timestamp" comment in Snowflake for an overview
 // of how we (try to) detect this in the actual program.
 active [5] D_proctype Time() {
     current_time = current_time + 1;

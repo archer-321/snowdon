@@ -343,7 +343,13 @@ where
     pub fn generate_lock_free(&self) -> Result<Snowflake<L, E>> {
         // Initially, load the last generated snowflake once. If the CAS loop below has to loop, we overwrite this value
         // with the result of our CAS operation.
-        let mut last_snowflake = self.last_snowflake_atomic.load(atomic::Ordering::Acquire);
+        // Note that we don't have to see all previous threads' modifications at this point. Our CAS operation below
+        // establishes an inter-thread happens-before relationship with other threads. I.e., we only successfully
+        // generate a new snowflake if we saw all other threads' store operations on this variable. If we see an
+        // outdated value here (or if another thread interleaves), we simply try again.
+        // Naturally, this load operation can't be reordered after the store below, as the value loaded here carries a
+        // dependency into the load operation of the CAS operation below.
+        let mut last_snowflake = self.last_snowflake_atomic.load(atomic::Ordering::Relaxed);
         // This CAS loop is the same as `AtomicU64::fetch_update`. However, we use the
         // manual loop implementation, as our update algorithm (the snowflake
         // generation) is fairly complex, and implementing the loop manually more
@@ -370,11 +376,17 @@ where
                 }
             };
             let new_snowflake = L::construct_snowflake(time, sequence);
+            // The load operation of the `compare_exchange_weak` below needs to see all previous writes. I.e., other
+            // writes to this value need to be in an inter-thread happens-before relationship with this load. We need to
+            // load the value with Acquire ordering and store it with Release to make this thread synchronize with other
+            // threads.
+            // Note that we don't necessarily need to see all previous stores if this operation fails. Refer to the
+            // comment above the `load` operation above for details.
             match self.last_snowflake_atomic.compare_exchange_weak(
                 last_snowflake,
                 new_snowflake,
                 atomic::Ordering::AcqRel,
-                atomic::Ordering::Acquire,
+                atomic::Ordering::Relaxed,
             ) {
                 Ok(_) => {
                     return Ok(Snowflake {

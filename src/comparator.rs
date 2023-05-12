@@ -15,6 +15,7 @@
 
 use crate::{Epoch, Error, Layout, Result, Snowflake};
 use std::cmp;
+use std::hash::{Hash, Hasher};
 use std::time::{Duration, SystemTime};
 
 /// A type to compare [`Snowflake`]s with timestamps.
@@ -258,6 +259,12 @@ where
 }
 
 impl Eq for SnowflakeComparator {}
+
+impl Hash for SnowflakeComparator {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.timestamp.hash(state);
+    }
+}
 
 impl PartialOrd for SnowflakeComparator {
     /// Returns how this snowflake comparator compares to the other comparator.

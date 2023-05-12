@@ -128,6 +128,7 @@ compile_error!("you must enable at least one generator implementation (blocking 
 
 use std::cmp;
 use std::fmt::{Display, Formatter};
+use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 #[cfg(feature = "lock-free")]
 use std::sync::atomic;
@@ -1019,6 +1020,16 @@ where
     L: Layout,
     E: Epoch,
 {
+}
+
+impl<L, E> Hash for Snowflake<L, E>
+where
+    L: Layout,
+    E: Epoch,
+{
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.inner.hash(state);
+    }
 }
 
 impl<L, E> PartialOrd for Snowflake<L, E>

@@ -14,6 +14,8 @@
 //! A comparator implementation to compare [`Snowflake`] implementations with arbitrary timestamps.
 
 use crate::{Epoch, Error, Layout, Result, Snowflake};
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 use std::cmp;
 use std::hash::{Hash, Hasher};
 use std::time::{Duration, SystemTime};
@@ -36,6 +38,7 @@ use std::time::{Duration, SystemTime};
 /// large in your implementation, you should be able to unwrap all [`Result`]s returned by this type's associated
 /// functions.
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[repr(transparent)]
 pub struct SnowflakeComparator {
     timestamp: u64,

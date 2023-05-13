@@ -74,6 +74,12 @@ by disabling this crate's default features:
 snowdon = { version = "^0.1", default-features = false, features = ["lock-free"]}
 ```
 
+To enable Serde support for snowflakes and snowflake comparators, enable the `serde` feature:
+
+```toml
+snowdon = { version = "^0.1", default-features = false, features = ["serde"]}
+```
+
 The types of this library are designed to make it hard to misuse them. Specifically, snowflakes have two type parameters
 that represent their layout (the composition of a snowflake - this defines how many bits are used for the individual
 parts of the snowflake) and their epoch (the timestamp that the individual timestamps in snowflakes are based on).
@@ -100,8 +106,8 @@ breaking changes. This behaviour effectively matches [Cargo's SemVer compatibili
 ## Minimum Rust version policy
 
 Our current minimum supported Rust version is `1.56.1`. We might increase our MSRV in the future, but we try to only do
-so if there's a good reason for it. Not having any dependencies (at the time of writing this README), we shouldn't need
-to increase our MSRV transitively because of a dependency update.
+so if there's a good reason for it. Only having a few dependencies that each have a stable MSRV policy, we shouldn't
+need to increase our MSRV transitively because of a dependency update.
 
 ## Correctness
 

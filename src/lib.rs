@@ -126,6 +126,8 @@
 #[cfg(not(any(feature = "blocking", feature = "lock-free")))]
 compile_error!("you must enable at least one generator implementation (blocking or lock-free)");
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 use std::cmp;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
@@ -890,6 +892,7 @@ pub trait Epoch {
 /// }
 /// ```
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[repr(transparent)]
 pub struct Snowflake<L, E>
 where

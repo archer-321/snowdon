@@ -13,11 +13,20 @@ categories = ["concurrency", "web-programming"]
 [dependencies]
 serde = { version = "^1.0", features = ["derive"], optional = true }
 
+[dev-dependencies]
+criterion = "^0.4"
+parking_lot = "^0.12"
+
 [features]
 default = ["blocking"]
 lock-free = []
 blocking = []
 serde = ["dep:serde"]
+
+[[bench]]
+name = "simple_snowflake"
+harness = false
+required-features = ["blocking", "lock-free"]
 
 [package.metadata.docs.rs]
 all-features = true

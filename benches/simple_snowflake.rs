@@ -120,5 +120,13 @@ fn generators(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, generators);
+fn generators_sequential(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Generators (sequential)");
+    let generator = MyGenerator::default();
+    group.bench_function("blocking", |b| b.iter(|| black_box(generator.generate_blocking())));
+    // Create a fresh generator to reset the sequence number
+    group.bench_function("lock-free", |b| b.iter(|| black_box(generator.generate_lock_free())));
+}
+
+criterion_group!(benches, generators, generators_sequential);
 criterion_main!(benches);

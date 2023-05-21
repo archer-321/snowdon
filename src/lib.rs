@@ -368,6 +368,13 @@ where
                     // The timestamp didn't change, so increment the sequence number
                     L::get_sequence_number(last_snowflake)
                         .checked_add(1)
+                        .and_then(|sequence| {
+                            if L::exceeds_sequence_number(sequence) {
+                                None
+                            } else {
+                                Some(sequence)
+                            }
+                        })
                         .ok_or(Error::SnowflakeExhaustion)?
                 }
                 cmp::Ordering::Less => {

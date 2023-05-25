@@ -33,8 +33,14 @@
 //! your application. However, common ways to derive a machine ID include using the machine's private IP address and
 //! provisioning a machine ID using some coordinated service. To avoid defaulting to an implementation that doesn't
 //! work for most users, we don't provide an implementation for this function at all.
-//!
-//! ```
+#![cfg_attr(
+    any(
+        all(feature = "blocking", not(feature = "lock-free")),
+        all(feature = "lock-free", not(feature = "blocking"))
+    ),
+    doc = "```"
+)]
+#![cfg_attr(all(feature = "blocking", feature = "lock-free"), doc = "```ignore")]
 //! use snowdon::{Epoch, Generator, Layout, Snowflake, SnowflakeComparator};
 //! use std::time::SystemTime;
 //!
@@ -115,7 +121,7 @@
 //! assert_eq!(first_snowflake, comparator);
 //! // The comparator only represents a timestamp, so we can't expect it to be
 //! // greater than `second_snowflake` here
-//! ```
+#![doc = "```"]
 //!
 //! [snowflake-gh]: https://github.com/twitter-archive/snowflake/tree/b3f6a3c6ca8e1b6847baa6ff42bf72201e2c2231
 //! [snowflake-blog]: https://blog.twitter.com/engineering/en_us/a/2010/announcing-snowflake
@@ -139,10 +145,76 @@ use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 #[cfg(feature = "blocking")]
 use std::sync::Mutex;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
+#[cfg(not(test))]
+use std::time::SystemTime;
+#[cfg(test)]
+use system_time_mock::SystemTime;
 
 mod classic;
 mod comparator;
+
+// A mocked system time to run our unit tests
+#[cfg(test)]
+mod system_time_mock {
+    use lazy_static::lazy_static;
+    use std::sync::{Mutex, MutexGuard};
+    use std::time::Duration;
+
+    lazy_static! {
+        static ref TIME: Mutex<u64> = Mutex::new(0);
+        static ref TIME_LOCK: Mutex<()> = Mutex::new(());
+    }
+
+    /// A mocked [`SystemTime`](std::time::SystemTime) used to test Snowdon.
+    // Skip coverage: We only use this system time implementation in tests, and our tests don't try to verify its
+    // correctness.
+    #[derive(Debug, Clone, Copy)]
+    #[repr(transparent)]
+    pub struct SystemTime(u64);
+    // End skip coverage
+
+    impl SystemTime {
+        pub const UNIX_EPOCH: Self = Self(0);
+
+        /// Sets the current time to the given number of milliseconds since the Unix epoch.
+        pub(crate) fn set_time(time: u64) {
+            *TIME.lock().unwrap() = time;
+        }
+
+        /// Acquires a lock on the global time state.
+        ///
+        /// This function is used to ensure that tests don't mutate the global time state concurrently. In tests, you
+        /// should acquire this lock and only drop the returned guard *after* your test has finished.
+        pub(crate) fn acquire_lock() -> MutexGuard<'static, ()> {
+            // If a previous test panicked, this lock will be poisoned. We don't care about the ZST inside, however,
+            // as we only use this lock to ensure only one test is mutating the system time at any given moment.
+            TIME_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        }
+
+        pub(crate) fn checked_add(&self, duration: Duration) -> Option<SystemTime> {
+            // We intentionally exclude u64::MAX here to test times that overflow `SystemTime`'s underlying data type
+            let duration = duration.as_millis();
+            if self.0 as u128 + duration >= u64::MAX as u128 {
+                return None;
+            }
+            Some(Self(self.0 + duration as u64))
+        }
+
+        pub(crate) fn duration_since(&self, earlier: SystemTime) -> Result<Duration, SystemTimeError> {
+            if earlier.0 > self.0 {
+                return Err(SystemTimeError);
+            }
+            Ok(Duration::from_millis(self.0 - earlier.0))
+        }
+
+        pub(crate) fn now() -> Self {
+            Self(*TIME.lock().unwrap())
+        }
+    }
+
+    pub(crate) struct SystemTimeError;
+}
 
 /// A thread-safe snowflake generator for a given snowflake [layout](Layout) and [epoch](Epoch).
 ///
@@ -151,8 +223,15 @@ mod comparator;
 /// format.
 ///
 /// # Example
-///
-/// ```
+// We need to exclude this test when running tests with --all-features because of rust-lang/rust#67295
+#[cfg_attr(
+    any(
+        all(feature = "blocking", not(feature = "lock-free")),
+        all(feature = "lock-free", not(feature = "blocking"))
+    ),
+    doc = "```"
+)]
+#[cfg_attr(all(feature = "blocking", feature = "lock-free"), doc = "```ignore")]
 /// // Specify our custom snowflake
 /// use snowdon::{ClassicLayout, Epoch, Generator, MachineId};
 /// #[derive(Debug)]
@@ -360,7 +439,10 @@ where
         // manual loop implementation, as our update algorithm (the snowflake
         // generation) is fairly complex, and implementing the loop manually more
         // closely matches the model implemented in the `spin` directory.
+        // Skip coverage: This loop will only be executed once in our current unit tests, as it's hard to force the CAS
+        // operation at the bottom to fail (deterministically).
         loop {
+            // End skip coverage (loop statement above)
             let time = Self::get_timestamp()?;
             let last_timestamp = L::get_timestamp(last_snowflake);
             let sequence = match last_timestamp.cmp(&time) {
@@ -407,10 +489,13 @@ where
                         _marker: PhantomData,
                     });
                 }
+                // Skip coverage: With our current testing setup, it's essentially impossible to reach this state
+                // deterministically. We can consider re-enabling this if we ever use something like `loom` for our
+                // verification (TODO).
                 Err(current_value) => {
                     // Our CAS operation failed; store the current value and try again
                     last_snowflake = current_value
-                }
+                } // End skip coverage
             }
         }
     }
@@ -435,6 +520,32 @@ where
         }
         Ok(time as u64)
     }
+
+    /// A small helper function for unit tests to set this generator's last generated snowflake.
+    ///
+    /// This function is intended to speed up snowflake exhaustion tests. Instead of having to generate tons of
+    /// snowflakes, this function allows setting the last snowflake's sequence number directly.
+    ///
+    /// Naturally, you must not use this function in any way outside unit tests.
+    #[doc(hidden)]
+    #[cfg(test)]
+    fn set_last_snowflake(&self, last_snowflake: u64) {
+        // Skip branch coverage: This code is explicitly only used for unit tests, so we're not verifying the branch
+        // in the assertion below.
+        assert!(L::is_valid_snowflake(last_snowflake));
+        // End skip branch coverage
+        #[cfg(feature = "blocking")]
+        {
+            let mut guard = self.last_snowflake_blocking.lock().unwrap();
+            *guard = last_snowflake;
+        }
+
+        #[cfg(feature = "lock-free")]
+        {
+            self.last_snowflake_atomic
+                .store(last_snowflake, atomic::Ordering::Release);
+        }
+    }
 }
 
 impl<L, E> Default for Generator<L, E>
@@ -458,6 +569,286 @@ where
         }
     }
 }
+
+// Skip coverage: We don't test the coverage of our unit tests.
+#[cfg(test)]
+mod generator_tests {
+    use crate::system_time_mock::SystemTime;
+    use crate::{Epoch, Error, Generator, Layout, Result, Snowflake};
+    use std::collections::{HashSet, VecDeque};
+
+    #[derive(Debug)]
+    struct SimpleSnowflakeParams;
+
+    impl Layout for SimpleSnowflakeParams {
+        fn construct_snowflake(timestamp: u64, sequence_number: u64) -> u64 {
+            assert!(!Self::exceeds_timestamp(timestamp) && !Self::exceeds_sequence_number(sequence_number));
+            timestamp << 12 | sequence_number
+        }
+        fn get_timestamp(input: u64) -> u64 {
+            input >> 12
+        }
+        fn exceeds_timestamp(input: u64) -> bool {
+            input >= (1 << 51)
+        }
+        fn get_sequence_number(input: u64) -> u64 {
+            input & ((1 << 12) - 1)
+        }
+        fn exceeds_sequence_number(input: u64) -> bool {
+            input >= (1 << 12)
+        }
+        fn is_valid_snowflake(input: u64) -> bool {
+            input >> 63 == 0
+        }
+    }
+
+    impl Epoch for SimpleSnowflakeParams {
+        fn millis_since_unix() -> u64 {
+            // Return the first millisecond of 2023
+            1672531200000
+        }
+    }
+
+    type SimpleSnowflake = Snowflake<SimpleSnowflakeParams, SimpleSnowflakeParams>;
+    type SimpleSnowflakeGenerator = Generator<SimpleSnowflakeParams, SimpleSnowflakeParams>;
+
+    macro_rules! impl_test {
+        ($test_impl:ident, $test:ident, $test_blocking:ident, $test_lock_free:ident) => {
+            #[test]
+            #[cfg(any(
+                all(feature = "blocking", not(feature = "lock-free")),
+                all(feature = "lock-free", not(feature = "blocking"))
+            ))]
+            fn $test() {
+                let _g = SystemTime::acquire_lock();
+                $test_impl(Generator::generate);
+            }
+            #[test]
+            #[cfg(feature = "blocking")]
+            fn $test_blocking() {
+                let _g = SystemTime::acquire_lock();
+                $test_impl(Generator::generate_blocking);
+            }
+            #[test]
+            #[cfg(feature = "lock-free")]
+            fn $test_lock_free() {
+                let _g = SystemTime::acquire_lock();
+                $test_impl(Generator::generate_lock_free);
+            }
+        };
+    }
+
+    // Naively test whether a single generator returns unique IDs.
+    impl_test!(test_unique, unique, unique_blocking, unique_lock_fre);
+
+    fn test_unique(generator: fn(&SimpleSnowflakeGenerator) -> Result<SimpleSnowflake>) {
+        // Set the time to the second millisecond of 2023
+        SystemTime::set_time(1672531200001);
+        let gen = SimpleSnowflakeGenerator::default();
+        let mut snowflakes: HashSet<_> = (0..10).map(|_| generator(&gen).unwrap()).collect();
+        // Increase the time by one millisecond
+        SystemTime::set_time(1672531200002);
+        for _ in 0..10 {
+            snowflakes.insert(generator(&gen).unwrap());
+        }
+        assert_eq!(20, snowflakes.len());
+    }
+
+    impl_test!(test_monotonic, monotonic, monotonic_blocking, monotonic_lock_free);
+
+    fn test_monotonic(generator: fn(&SimpleSnowflakeGenerator) -> Result<SimpleSnowflake>) {
+        SystemTime::set_time(1672531200001);
+        let gen = SimpleSnowflakeGenerator::default();
+        let mut snowflakes: VecDeque<_> = (0..10).map(|_| generator(&gen).unwrap()).collect();
+        SystemTime::set_time(1672531200002);
+        for _ in 0..10 {
+            snowflakes.push_back(generator(&gen).unwrap());
+        }
+        let mut previous = snowflakes.pop_front().unwrap();
+        for snowflake in snowflakes {
+            assert!(previous < snowflake);
+            previous = snowflake;
+        }
+    }
+
+    impl_test!(
+        test_snowflake_exhaustion,
+        snowflake_exhaustion,
+        snowflake_exhaustion_blocking,
+        snowflake_exhaustion_lock_free
+    );
+
+    fn test_snowflake_exhaustion(generator: fn(&SimpleSnowflakeGenerator) -> Result<SimpleSnowflake>) {
+        SystemTime::set_time(1672531200001);
+        let gen = SimpleSnowflakeGenerator::default();
+        // Generate 4096 snowflakes to exhaust our sequence number - there are more efficient ways to do this, but this
+        // is the only (real) way the sequence number will fill up.
+        for _ in 0..(1 << 12) {
+            match generator(&gen) {
+                Err(Error::FatalSnowflakeExhaustion) => {
+                    panic!("fatal snowflake exhaustion without being limited by the epoch");
+                }
+                Err(Error::SnowflakeExhaustion) => {
+                    panic!("snowflakes exhausted without being limited by the sequence number");
+                }
+                Err(_) => {
+                    panic!("unexpected error while generating a snowflake");
+                }
+                Ok(_) => {}
+            }
+        }
+        // This generator call should fail
+        let result = generator(&gen);
+        assert_eq!(Error::SnowflakeExhaustion, result.unwrap_err());
+
+        SystemTime::set_time(1672531200002);
+        let _ = generator(&gen).unwrap();
+    }
+
+    // Admittedly, this test won't affect 99% of our users, and if our code would fail here, it's most likely because of
+    // a bug in the user's code, as they've specified a snowflake layout that doesn't fulfill our requirements.
+    #[test]
+    fn malicious_snowflake_exhaustion() {
+        let _g = SystemTime::acquire_lock();
+        // Specify an "illegal" snowflake format that doesn't include a timestamp
+        #[derive(Debug)]
+        struct Bad;
+
+        impl Layout for Bad {
+            fn construct_snowflake(_timestamp: u64, sequence_number: u64) -> u64 {
+                sequence_number
+            }
+            fn get_timestamp(_input: u64) -> u64 {
+                0
+            }
+            fn exceeds_timestamp(_input: u64) -> bool {
+                // Lie about the timestamp
+                false
+            }
+            fn get_sequence_number(input: u64) -> u64 {
+                input
+            }
+            fn exceeds_sequence_number(_input: u64) -> bool {
+                // Technically, this implementation is valid. If the value overflows, we can't detect this here.
+                false
+            }
+            fn is_valid_snowflake(_input: u64) -> bool {
+                true
+            }
+        }
+
+        SystemTime::set_time(1672531200000);
+        type BadGen = Generator<Bad, SimpleSnowflakeParams>;
+        let gen = BadGen::default();
+        gen.set_last_snowflake(u64::MAX);
+        #[cfg(any(
+            all(feature = "blocking", not(feature = "lock-free")),
+            all(feature = "lock-free", not(feature = "blocking"))
+        ))]
+        assert_eq!(Error::SnowflakeExhaustion, BadGen::generate(&gen).unwrap_err());
+        #[cfg(feature = "blocking")]
+        assert_eq!(Error::SnowflakeExhaustion, BadGen::generate_blocking(&gen).unwrap_err());
+        #[cfg(feature = "lock-free")]
+        assert_eq!(
+            Error::SnowflakeExhaustion,
+            BadGen::generate_lock_free(&gen).unwrap_err()
+        );
+    }
+
+    #[test]
+    fn test_extreme_epoch() {
+        let _g = SystemTime::acquire_lock();
+        #[derive(Debug)]
+        struct BadEpoch;
+
+        impl Epoch for BadEpoch {
+            fn millis_since_unix() -> u64 {
+                u64::MAX
+            }
+        }
+
+        type BadGen = Generator<SimpleSnowflakeParams, BadEpoch>;
+
+        SystemTime::set_time(u64::MAX);
+        let gen = BadGen::default();
+        #[cfg(any(
+        all(feature = "blocking", not(feature = "lock-free")),
+        all(feature = "lock-free", not(feature = "blocking"))
+        ))]
+        assert_eq!(Error::FatalSnowflakeExhaustion, gen.generate().unwrap_err());
+        #[cfg(feature = "blocking")]
+        assert_eq!(Error::FatalSnowflakeExhaustion, gen.generate_blocking().unwrap_err());
+        #[cfg(feature = "lock-free")]
+        assert_eq!(Error::FatalSnowflakeExhaustion, gen.generate_lock_free().unwrap_err());
+    }
+
+    impl_test!(
+        test_non_monotonic_clock,
+        non_monotonic_clock,
+        non_monotonic_clock_blocking,
+        non_monotonic_clock_lock_free
+    );
+
+    fn test_non_monotonic_clock(generator: fn(&SimpleSnowflakeGenerator) -> Result<SimpleSnowflake>) {
+        SystemTime::set_time(1672531200002);
+        let gen = SimpleSnowflakeGenerator::default();
+        let before = generator(&gen).unwrap();
+
+        // Simulate a non-monotonic clock
+        SystemTime::set_time(1672531200001);
+        let result = generator(&gen);
+        assert_eq!(
+            Error::NonMonotonicClock,
+            result.expect_err("non-monotonic clock not detected")
+        );
+
+        // The generator should work again once we increase the time again
+        SystemTime::set_time(1672531200002);
+        let after = generator(&gen).expect("snowflake generation failed after clock was adjusted back");
+        assert!(before < after);
+
+        SystemTime::set_time(1672531200003);
+        let _ = generator(&gen).unwrap();
+    }
+
+    impl_test!(
+        test_invalid_epoch,
+        invalid_epoch,
+        invalid_epoch_blocking,
+        invalid_epoch_lock_free
+    );
+
+    fn test_invalid_epoch(generator: fn(&SimpleSnowflakeGenerator) -> Result<SimpleSnowflake>) {
+        // Set the time so that our epoch is in the future
+        SystemTime::set_time(1672531199999);
+        let gen = SimpleSnowflakeGenerator::default();
+        assert_eq!(Error::InvalidEpoch, generator(&gen).unwrap_err());
+        // Set the time to the same millisecond as the generator
+        SystemTime::set_time(1672531200000);
+        assert_eq!(
+            Snowflake::from_raw(1).unwrap(),
+            generator(&gen).expect("generator failed to generate a snowflake after the")
+        );
+        // Verify that the generator still works after the epoch's millisecond
+        assert!(generator(&gen).is_ok());
+    }
+
+    impl_test!(
+        test_type_limits,
+        type_limits,
+        type_limits_blocking,
+        type_limits_lock_free
+    );
+
+    fn test_type_limits(generator: fn(&SimpleSnowflakeGenerator) -> Result<SimpleSnowflake>) {
+        SystemTime::set_time(1672531200000 + (1 << 51));
+        let gen = SimpleSnowflakeGenerator::default();
+        assert_eq!(Error::FatalSnowflakeExhaustion, generator(&gen).unwrap_err());
+        SystemTime::set_time(u64::MAX);
+        assert_eq!(Error::FatalSnowflakeExhaustion, generator(&gen).unwrap_err());
+    }
+}
+// End skip coverage
 
 /// A trait specifying the composition of a snowflake.
 ///
@@ -907,7 +1298,10 @@ where
     E: Epoch,
 {
     inner: u64,
+    // Skip coverage: This is a ZST. It's, by definition, going to disappear at compile time, so we can't get any
+    // coverage for this.
     _marker: PhantomData<(L, E)>,
+    // End skip coverage
 }
 
 impl<L, E> Snowflake<L, E>
@@ -1066,7 +1460,7 @@ pub use classic::{ClassicLayout, ClassicLayoutSnowflakeExtension, MachineId};
 pub use comparator::SnowflakeComparator;
 
 /// Errors that can occur when generating or using a [`Snowflake`].
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum Error {
     /// An error that occurs if the system clock went backwards.
@@ -1096,6 +1490,7 @@ pub enum Error {
     InvalidSnowflake,
 }
 
+// Skip coverage: Other than duplicating the constant strings below, we can't test this display implementation anyway
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -1117,6 +1512,7 @@ impl Display for Error {
         }
     }
 }
+// End skip coverage
 
 impl std::error::Error for Error {}
 

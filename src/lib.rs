@@ -169,7 +169,7 @@ mod system_time_mock {
     /// A mocked [`SystemTime`](std::time::SystemTime) used to test Snowdon.
     // Skip coverage: We only use this system time implementation in tests, and our tests don't try to verify its
     // correctness.
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
     #[repr(transparent)]
     pub struct SystemTime(u64);
     // End skip coverage
@@ -772,8 +772,8 @@ mod generator_tests {
         SystemTime::set_time(u64::MAX);
         let gen = BadGen::default();
         #[cfg(any(
-        all(feature = "blocking", not(feature = "lock-free")),
-        all(feature = "lock-free", not(feature = "blocking"))
+            all(feature = "blocking", not(feature = "lock-free")),
+            all(feature = "lock-free", not(feature = "blocking"))
         ))]
         assert_eq!(Error::FatalSnowflakeExhaustion, gen.generate().unwrap_err());
         #[cfg(feature = "blocking")]
@@ -1336,8 +1336,8 @@ where
     /// Returns the timestamp of this snowflake's birth.
     ///
     /// If the time can't be represented with a `SystemTime` instance, [`Error::FatalSnowflakeExhaustion`] is returned
-    /// instead. With most snowflake layouts, it should be impossible to store such a timestamp in the snowflake,
-    /// though.
+    /// instead. With most snowflake layouts and epochs, it should be impossible to store such a timestamp in the
+    /// snowflake, though.
     ///
     /// If you're looking for the raw number of milliseconds since the snowflake's epoch (or an infallible way to
     /// retrieve a snowflake's timestamp), you should use [`get_timestamp_raw`](Self::get_timestamp_raw).
@@ -1455,6 +1455,245 @@ where
         self.inner.cmp(&other.inner)
     }
 }
+
+// Skip coverage: We don't test the coverage of our unit tests
+#[cfg(test)]
+mod snowflake_tests {
+    use crate::system_time_mock::SystemTime;
+    use crate::{Epoch, Error, Layout, Snowflake};
+    use std::cmp::{max, max_by, min, min_by, Ordering};
+    use std::time::Duration;
+
+    #[derive(Debug)]
+    struct SimpleParams;
+
+    impl Layout for SimpleParams {
+        fn construct_snowflake(timestamp: u64, sequence_number: u64) -> u64 {
+            assert!(!Self::exceeds_timestamp(timestamp) && !Self::exceeds_sequence_number(sequence_number));
+            timestamp << 22 | sequence_number
+        }
+        fn get_timestamp(input: u64) -> u64 {
+            input >> 22
+        }
+        fn exceeds_timestamp(input: u64) -> bool {
+            input >= 1 << 41
+        }
+        fn get_sequence_number(input: u64) -> u64 {
+            input & ((1 << 12) - 1)
+        }
+        fn exceeds_sequence_number(input: u64) -> bool {
+            input >= 1 << 12
+        }
+        fn is_valid_snowflake(input: u64) -> bool {
+            input >> 63 == 0
+        }
+    }
+
+    impl Epoch for SimpleParams {
+        fn millis_since_unix() -> u64 {
+            0
+        }
+    }
+
+    type SimpleSnowflake = Snowflake<SimpleParams, SimpleParams>;
+
+    #[test]
+    fn invalid_from_raw() {
+        assert_eq!(
+            Error::InvalidSnowflake,
+            SimpleSnowflake::from_raw(1 << 63).unwrap_err(),
+            "`Snowflake::from_raw` allowed creating an invalid snowflake"
+        );
+        assert_eq!(
+            (1 << 63) - 1,
+            SimpleSnowflake::from_raw((1 << 63) - 1)
+                .expect("`Snowflake::from_raw` rejected a valid snowflake")
+                .get(),
+            "`Snowflake::from_raw` produced an unrelated snowflake"
+        );
+    }
+
+    #[test]
+    fn get_timestamp() {
+        let snowflake = SimpleSnowflake::from_raw(123 << 22).unwrap();
+        assert_eq!(
+            SystemTime::UNIX_EPOCH.checked_add(Duration::from_millis(123)).unwrap(),
+            snowflake
+                .get_timestamp()
+                .expect("snowflake failed to return its timestamp"),
+            "snowflake returned an unrelated timestamp"
+        );
+        assert_eq!(
+            123,
+            snowflake.get_timestamp_raw(),
+            "snowflake returned an unrelated raw timestamp"
+        );
+    }
+
+    #[test]
+    fn get_timestamp_custom_epoch() {
+        struct CustomEpoch;
+
+        const EPOCH: u64 = 1024;
+
+        impl Epoch for CustomEpoch {
+            fn millis_since_unix() -> u64 {
+                EPOCH
+            }
+        }
+
+        let snowflake = Snowflake::<SimpleParams, CustomEpoch>::from_raw(234 << 22)
+            .expect("failed to create snowflake with custom epoch");
+        assert_eq!(
+            SystemTime::UNIX_EPOCH
+                .checked_add(Duration::from_millis(234 + EPOCH))
+                .unwrap(),
+            snowflake
+                .get_timestamp()
+                .expect("snowflake failed to return its timestamp with a custom epoch"),
+            "snowflake didn't use the custom epoch to return a timestamp or returned an otherwise unrelated timestamp"
+        );
+        assert_eq!(
+            234,
+            snowflake.get_timestamp_raw(),
+            "snowflake returned an invalid raw timestamp (possibly converting it to another epoch)"
+        );
+    }
+
+    #[test]
+    fn get_sequence_number() {
+        assert_eq!(
+            0,
+            SimpleSnowflake::from_raw(0).unwrap().get_sequence_number(),
+            "snowflake with sequence number 0 returned invalid sequence number"
+        );
+        assert_eq!(
+            (1 << 12) - 1,
+            SimpleSnowflake::from_raw((1 << 12) - 1).unwrap().get_sequence_number(),
+            "snowflake with max sequence number returned invalid sequence number"
+        );
+        assert_eq!(
+            0,
+            SimpleSnowflake::from_raw(1 << 22).unwrap().get_sequence_number(),
+            "snowflake failed to return sequence number 0 with a non-zero timestamp"
+        );
+        assert_eq!(
+            (1 << 12) - 1,
+            SimpleSnowflake::from_raw(1 << 22 | ((1 << 12) - 1))
+                .unwrap()
+                .get_sequence_number(),
+            "snowflake failed to return max sequence number with a non-zero timestamp"
+        );
+    }
+
+    #[test]
+    fn comparators() {
+        let (foo, bar, baz) = (
+            SimpleSnowflake::from_raw(0).unwrap(),
+            SimpleSnowflake::from_raw(1 << 22).unwrap(),
+            SimpleSnowflake::from_raw(2 << 22).unwrap(),
+        );
+        assert!(foo < bar && bar < baz);
+        let (foo, bar, baz) = (
+            foo.get_comparator().unwrap(),
+            bar.get_comparator().unwrap(),
+            baz.get_comparator().unwrap(),
+        );
+        assert!(foo < bar && bar < baz, "snowflakes returned unrelated comparators");
+    }
+
+    #[test]
+    #[allow(clippy::nonminimal_bool)]
+    fn ord() {
+        for timestamp in 0..1 {
+            let foo = SimpleSnowflake::from_raw(timestamp << 22 | 2).unwrap();
+            let (smaller, equal, greater) = (
+                SimpleSnowflake::from_raw(timestamp << 22 | 1).unwrap(),
+                SimpleSnowflake::from_raw(timestamp << 22 | 2).unwrap(),
+                SimpleSnowflake::from_raw(timestamp << 22 | 3).unwrap(),
+            );
+            // PartialEq
+            assert_ne!(foo, smaller);
+            assert!(!(foo == smaller));
+            assert_eq!(foo, equal);
+            assert!(!(foo != equal));
+            assert_ne!(foo, greater);
+            assert!(!(foo == greater));
+
+            // Eq
+            assert_eq!(foo, foo);
+            assert_eq!(foo, equal);
+            assert_eq!(equal, foo);
+            // We don't check transitivity here, as the test would be trivial
+
+            // PartialOrd
+            assert_ne!(Ordering::Equal, PartialOrd::partial_cmp(&foo, &smaller).unwrap());
+            assert_eq!(Ordering::Equal, PartialOrd::partial_cmp(&foo, &equal).unwrap());
+            assert_ne!(Ordering::Equal, PartialOrd::partial_cmp(&foo, &greater).unwrap());
+            assert_eq!(Ordering::Less, PartialOrd::partial_cmp(&smaller, &foo).unwrap());
+            assert_ne!(Ordering::Less, PartialOrd::partial_cmp(&foo, &equal).unwrap());
+            assert_eq!(Ordering::Less, PartialOrd::partial_cmp(&foo, &greater).unwrap());
+            assert_eq!(Ordering::Greater, PartialOrd::partial_cmp(&foo, &smaller).unwrap());
+            assert_ne!(Ordering::Greater, PartialOrd::partial_cmp(&foo, &equal).unwrap());
+            assert_eq!(Ordering::Greater, PartialOrd::partial_cmp(&greater, &foo).unwrap());
+            assert!(foo <= equal && foo <= greater);
+            assert!(!(foo <= smaller));
+            assert!(foo >= smaller && foo >= equal);
+            assert!(!(foo >= greater));
+
+            // Ord
+            assert_eq!(
+                PartialOrd::partial_cmp(&foo, &smaller).unwrap(),
+                Ord::cmp(&foo, &smaller)
+            );
+            assert_eq!(
+                PartialOrd::partial_cmp(&smaller, &foo).unwrap(),
+                Ord::cmp(&smaller, &foo)
+            );
+            assert_eq!(PartialOrd::partial_cmp(&foo, &equal).unwrap(), Ord::cmp(&foo, &equal));
+            assert_eq!(PartialOrd::partial_cmp(&equal, &foo).unwrap(), Ord::cmp(&equal, &foo));
+            assert_eq!(
+                PartialOrd::partial_cmp(&foo, &greater).unwrap(),
+                Ord::cmp(&foo, &greater)
+            );
+            assert_eq!(
+                PartialOrd::partial_cmp(&greater, &foo).unwrap(),
+                Ord::cmp(&greater, &foo)
+            );
+            assert_eq!(max(foo, smaller), max_by(foo, smaller, Ord::cmp));
+            assert_eq!(max(smaller, foo), max_by(smaller, foo, Ord::cmp));
+            assert_eq!(max(foo, equal), max_by(foo, equal, Ord::cmp));
+            assert_eq!(max(equal, foo), max_by(equal, foo, Ord::cmp));
+            assert_eq!(max(foo, greater), max_by(foo, greater, Ord::cmp));
+            assert_eq!(max(greater, foo), max_by(greater, foo, Ord::cmp));
+            assert_eq!(min(foo, smaller), min_by(foo, smaller, Ord::cmp));
+            assert_eq!(min(smaller, foo), min_by(smaller, foo, Ord::cmp));
+            assert_eq!(min(foo, equal), min_by(foo, equal, Ord::cmp));
+            assert_eq!(min(equal, foo), min_by(equal, foo, Ord::cmp));
+            assert_eq!(min(foo, greater), min_by(foo, greater, Ord::cmp));
+            assert_eq!(min(greater, foo), min_by(greater, foo, Ord::cmp));
+            // We don't check clamp here, as the tests above should imply correct behaviour there
+        }
+    }
+
+    #[test]
+    fn timestamp_overflow() {
+        #[derive(Debug)]
+        struct BadEpoch;
+
+        impl Epoch for BadEpoch {
+            fn millis_since_unix() -> u64 {
+                u64::MAX
+            }
+        }
+
+        let snowflake = Snowflake::<SimpleParams, BadEpoch>::from_raw((u32::MAX as u64) << 22).unwrap();
+        assert_eq!(Error::FatalSnowflakeExhaustion, snowflake.get_timestamp().unwrap_err());
+        let snowflake = Snowflake::<SimpleParams, BadEpoch>::from_raw((1 << 63) - 1).unwrap();
+        assert_eq!(Error::FatalSnowflakeExhaustion, snowflake.get_timestamp().unwrap_err());
+    }
+}
+// End skip coverage
 
 pub use classic::{ClassicLayout, ClassicLayoutSnowflakeExtension, MachineId};
 pub use comparator::SnowflakeComparator;

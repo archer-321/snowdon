@@ -25,6 +25,22 @@
 //! The original Twitter snowflake implementation can be found [here][snowflake-gh]. You can read more about snowflakes
 //! in Twitter's [blog post][snowflake-blog] about them.
 //!
+//! # Serde compatibility
+//!
+//! [`Snowflake`] and [`SnowflakeComparator`] implement Serde's `Serialize` and `Deserialize` traits if the crate
+//! feature `serde` is enabled. To enable Serde compatibility, simply opt in by changing your dependency line in
+//! `Cargo.toml` to:
+//!
+//! ```toml
+//! [dependencies]
+//! # ...
+//! snowdon = { version = "^0.1", features = ["serde"] }
+//! ```
+//!
+//! Note that [`Generator`] *doesn't* implement (de-)serialization even if the feature is enabled. A generator's state
+//! highly depends on the machine it's running on, and usually, there's no reason to serialize it or otherwise store and
+//! load it somehow.
+//!
 //! # Example
 //!
 //! The example below implements a custom layout that uses 42 bits for the timestamp, 10 bits for a machine ID, and 12

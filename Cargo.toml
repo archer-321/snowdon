@@ -30,4 +30,5 @@ harness = false
 required-features = ["blocking", "lock-free"]
 
 [package.metadata.docs.rs]
+features = ["serde"]
 rustdoc-args = ["--cfg", "docsrs"]

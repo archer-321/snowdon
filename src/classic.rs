@@ -227,3 +227,155 @@ pub trait MachineId {
     /// The returned ID must remain constant throughout the runtime of this instance.
     fn machine_id() -> u64;
 }
+
+// Skip coverage: We don't test the coverage of our unit tests
+#[cfg(test)]
+mod tests {
+    use crate::{ClassicLayout, ClassicLayoutSnowflakeExtension, Epoch, Layout, MachineId, Snowflake};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Mutex, MutexGuard};
+
+    static MACHINE_ID: AtomicU64 = AtomicU64::new(0);
+    static MACHINE_LOCK: Mutex<()> = Mutex::new(());
+
+    struct SimpleMachineId;
+
+    impl SimpleMachineId {
+        fn set_id(id: u64) {
+            MACHINE_ID.store(id, Ordering::Release);
+        }
+        fn acquire_lock() -> MutexGuard<'static, ()> {
+            MACHINE_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+        }
+    }
+
+    impl MachineId for SimpleMachineId {
+        fn machine_id() -> u64 {
+            MACHINE_ID.load(Ordering::Acquire)
+        }
+    }
+
+    // We use the type below for tests that don't need changing machine IDs to prevent having to acquire a lock on its
+    // state
+
+    struct ZeroMachineId;
+
+    impl MachineId for ZeroMachineId {
+        fn machine_id() -> u64 {
+            0
+        }
+    }
+
+    #[test]
+    fn construct_snowflake() {
+        let _g = SimpleMachineId::acquire_lock();
+        SimpleMachineId::set_id(0);
+
+        // First, verify the individual parts
+        assert_eq!(
+            (1 << 12) - 1,
+            ClassicLayout::<SimpleMachineId>::construct_snowflake(0, (1 << 12) - 1),
+            "`construct_snowflake` used an unrelated sequence number"
+        );
+        SimpleMachineId::set_id((1 << 10) - 1);
+        assert_eq!(
+            (1 << 10) - 1,
+            ClassicLayout::<SimpleMachineId>::construct_snowflake(0, 0) >> 12
+        );
+        SimpleMachineId::set_id(0);
+        assert_eq!(
+            (1 << 41) - 1,
+            ClassicLayout::<SimpleMachineId>::construct_snowflake((1 << 41) - 1, 0) >> 22
+        );
+
+        // Verify that the largest snowflake still has a leading 0. It's guaranteed that this is the largest snowflake,
+        // as we test that the code panics for larger values with the tests below.
+        SimpleMachineId::set_id((1 << 10) - 1);
+        assert_eq!(
+            0,
+            ClassicLayout::<SimpleMachineId>::construct_snowflake((1 << 41) - 1, (1 << 12) - 1) >> 63
+        );
+
+        // Verify that this layout doesn't introduce any bits for the smallest snowflake
+        SimpleMachineId::set_id(0);
+        assert_eq!(0, ClassicLayout::<SimpleMachineId>::construct_snowflake(0, 0));
+    }
+
+    // Ensure that values that exceed the layout's bit counts can't be used to construct snowflakes
+    #[test]
+    #[should_panic]
+    fn extreme_timestamp() {
+        let _ = ClassicLayout::<ZeroMachineId>::construct_snowflake(1 << 41, 0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn extreme_sequence_number() {
+        let _ = ClassicLayout::<ZeroMachineId>::construct_snowflake(0, 1 << 12);
+    }
+
+    #[test]
+    #[should_panic]
+    fn extreme_machine_id() {
+        let _g = SimpleMachineId::acquire_lock();
+        SimpleMachineId::set_id(1 << 10);
+        let _ = ClassicLayout::<SimpleMachineId>::construct_snowflake(0, 0);
+    }
+
+    #[test]
+    fn getters() {
+        assert_eq!(0, ClassicLayout::<ZeroMachineId>::get_timestamp((1 << 22) - 1));
+        assert_eq!(
+            123,
+            ClassicLayout::<ZeroMachineId>::get_timestamp(123 << 22 | ((1 << 22) - 1))
+        );
+        assert_eq!(
+            (1 << 41) - 1,
+            ClassicLayout::<ZeroMachineId>::get_timestamp(u64::MAX >> 1)
+        );
+        assert_eq!(
+            0,
+            ClassicLayout::<ZeroMachineId>::get_sequence_number((u64::MAX << 13) >> 1)
+        );
+        assert_eq!(
+            123,
+            ClassicLayout::<ZeroMachineId>::get_sequence_number((u64::MAX << 13) >> 1 | 123)
+        );
+        assert_eq!(
+            (1 << 12) - 1,
+            ClassicLayout::<ZeroMachineId>::get_sequence_number(u64::MAX >> 1)
+        );
+        assert_eq!(
+            0,
+            ClassicLayout::<ZeroMachineId>::get_machine_id((u64::MAX << 23) >> 1 | ((1 << 12) - 1))
+        );
+        assert_eq!(
+            123,
+            ClassicLayout::<ZeroMachineId>::get_machine_id((u64::MAX << 23) >> 1 | 123 << 12 | ((1 << 12) - 1))
+        );
+        assert_eq!(
+            (1 << 10) - 1,
+            ClassicLayout::<ZeroMachineId>::get_machine_id(u64::MAX >> 1)
+        );
+    }
+
+    #[test]
+    fn snowflake_extension() {
+        struct SimpleEpoch;
+
+        impl Epoch for SimpleEpoch {
+            fn millis_since_unix() -> u64 {
+                0
+            }
+        }
+
+        type SimpleSnowflake = Snowflake<ClassicLayout<ZeroMachineId>, SimpleEpoch>;
+        assert_eq!(0, SimpleSnowflake::from_raw(0).unwrap().get_machine_id());
+        assert_eq!(234, SimpleSnowflake::from_raw(234 << 12).unwrap().get_machine_id());
+        assert_eq!(
+            (1 << 10) - 1,
+            SimpleSnowflake::from_raw(u64::MAX >> 1).unwrap().get_machine_id()
+        );
+    }
+}
+// End skip coverage

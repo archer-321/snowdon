@@ -18,7 +18,7 @@ use crate::{Epoch, Error, Layout, Result, Snowflake};
 use serde::{Deserialize, Serialize};
 use std::cmp;
 use std::hash::{Hash, Hasher};
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 /// A type to compare [`Snowflake`]s with timestamps.
 ///
@@ -197,22 +197,9 @@ impl SnowflakeComparator {
     where
         E: Epoch,
     {
-        let timestamp = SystemTime::UNIX_EPOCH
-            .checked_add(Duration::from_millis(
-                E::millis_since_unix()
-                    .checked_add(timestamp)
-                    .ok_or(Error::FatalSnowflakeExhaustion)?,
-            ))
-            .ok_or(Error::FatalSnowflakeExhaustion)?
-            .duration_since(SystemTime::UNIX_EPOCH)
-            // We've constructed the timestamp using a positive duration and the Unix epoch above, so this will always
-            // be after the Unix epoch. Thus, we can safely unwrap this result.
-            .unwrap()
-            .as_millis();
-        if timestamp > u64::MAX as u128 {
-            return Err(Error::FatalSnowflakeExhaustion);
-        }
-        Ok(timestamp as u64)
+        E::millis_since_unix()
+            .checked_add(timestamp)
+            .ok_or(Error::FatalSnowflakeExhaustion)
     }
 }
 

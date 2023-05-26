@@ -91,6 +91,12 @@ where
     pub fn get_machine_id(input: u64) -> u64 {
         (input & Self::MACHINE_ID_MASK) >> Self::SEQUENCE_NUMBER_BITS
     }
+
+    /// Returns whether the given machine ID exceeds the maximum supported by this layout.
+    #[inline]
+    fn exceeds_machine_id(input: u64) -> bool {
+        input >= 1 << Self::MACHINE_ID_BITS
+    }
 }
 
 impl<I> Layout for ClassicLayout<I>
@@ -99,9 +105,14 @@ where
 {
     #[inline]
     fn construct_snowflake(timestamp: u64, sequence_number: u64) -> u64 {
-        assert!(!Self::exceeds_timestamp(timestamp) && !Self::exceeds_sequence_number(sequence_number));
+        let machine_id = I::machine_id();
+        assert!(
+            !Self::exceeds_timestamp(timestamp)
+                && !Self::exceeds_sequence_number(sequence_number)
+                && !Self::exceeds_machine_id(machine_id)
+        );
         (timestamp << (Self::MACHINE_ID_BITS + Self::SEQUENCE_NUMBER_BITS))
-            | (I::machine_id() << Self::SEQUENCE_NUMBER_BITS)
+            | (machine_id << Self::SEQUENCE_NUMBER_BITS)
             | sequence_number
     }
 

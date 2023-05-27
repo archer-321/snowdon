@@ -41,7 +41,10 @@ use std::time::SystemTime;
 #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[repr(transparent)]
 pub struct SnowflakeComparator {
+    // Skip coverage: The `derive` above makes the line below show up as uncovered. However, we're not testing the
+    // debug implementation or Clone / Copy (which are trivial for this type).
     timestamp: u64,
+    // End skip coverage
 }
 
 impl SnowflakeComparator {
@@ -320,3 +323,182 @@ impl Ord for SnowflakeComparator {
         self.timestamp.cmp(&other.timestamp)
     }
 }
+
+// Skip coverage: We don't test the coverage of our unit tests
+#[cfg(test)]
+mod tests {
+    use crate::{ClassicLayout, Epoch, Error, Layout, MachineId, Snowflake, SnowflakeComparator};
+    use std::time::{Duration, SystemTime};
+
+    struct SimpleEpoch;
+
+    impl Epoch for SimpleEpoch {
+        fn millis_since_unix() -> u64 {
+            0
+        }
+    }
+
+    // The second... second of 1970
+    const SECOND_SECOND: u64 = 1000;
+
+    #[test]
+    fn from_system_time() {
+        let comparator =
+            SnowflakeComparator::from_system_time(SystemTime::UNIX_EPOCH + Duration::from_millis(SECOND_SECOND))
+                .unwrap();
+        verify_comparator(comparator, SECOND_SECOND);
+
+        // Timestamps that predate the Unix epoch should return an error
+        assert_eq!(
+            Error::InvalidEpoch,
+            SnowflakeComparator::from_system_time(SystemTime::UNIX_EPOCH - Duration::from_millis(1)).unwrap_err(),
+            "snowflake comparator didn't detect a \"negative\" timestamp"
+        );
+        // Timestamps that exceed the underlying data type should return an error as well
+        assert_eq!(
+            Error::FatalSnowflakeExhaustion,
+            SnowflakeComparator::from_system_time(
+                SystemTime::UNIX_EPOCH + Duration::from_millis(u64::MAX) + Duration::from_millis(1)
+            )
+            .unwrap_err(),
+            "snowflake comparator accepted timestamp that exceeds its data type"
+        );
+    }
+
+    #[test]
+    fn from_timestamp() {
+        let comparator = SnowflakeComparator::from_timestamp::<SimpleEpoch>(SECOND_SECOND).unwrap();
+        verify_comparator(comparator, SECOND_SECOND);
+
+        // Verify a non-zero epoch
+        struct OtherEpoch;
+
+        impl Epoch for OtherEpoch {
+            fn millis_since_unix() -> u64 {
+                SECOND_SECOND
+            }
+        }
+
+        let comparator = SnowflakeComparator::from_timestamp::<OtherEpoch>(SECOND_SECOND).unwrap();
+        verify_comparator(comparator, SECOND_SECOND * 2);
+
+        // Timestamps that exceed the underlying data type should return an error
+        assert_eq!(
+            Error::FatalSnowflakeExhaustion,
+            SnowflakeComparator::from_timestamp::<OtherEpoch>(u64::MAX).unwrap_err()
+        );
+    }
+
+    #[test]
+    fn from_raw_timestamp() {
+        let comparator = SnowflakeComparator::from_raw_timestamp(SECOND_SECOND);
+        verify_comparator(comparator, SECOND_SECOND);
+    }
+
+    #[allow(clippy::nonminimal_bool, clippy::eq_op)]
+    fn verify_comparator(comparator: SnowflakeComparator, timestamp: u64) {
+        // This test needs comparators that are smaller and greater than the provided one
+        assert!(timestamp > u64::MIN && timestamp < u64::MAX);
+
+        let (less, equal, greater) = (
+            SnowflakeComparator::from_raw_timestamp(timestamp - 1),
+            SnowflakeComparator::from_raw_timestamp(timestamp),
+            SnowflakeComparator::from_raw_timestamp(timestamp + 1),
+        );
+        crate::snowflake_tests::validate_partial_ord(comparator, less, equal, greater);
+        crate::snowflake_tests::validate_ord(comparator, less, equal, greater);
+
+        #[derive(Debug)]
+        struct SimpleParams;
+
+        impl Layout for SimpleParams {
+            fn construct_snowflake(timestamp: u64, sequence_number: u64) -> u64 {
+                assert!(!Self::exceeds_timestamp(timestamp) && !Self::exceeds_sequence_number(sequence_number));
+                timestamp << 32 | sequence_number
+            }
+            fn get_timestamp(input: u64) -> u64 {
+                input >> 32
+            }
+            fn exceeds_timestamp(input: u64) -> bool {
+                input > u32::MAX as u64
+            }
+            fn get_sequence_number(input: u64) -> u64 {
+                input & u32::MAX as u64
+            }
+            fn exceeds_sequence_number(input: u64) -> bool {
+                input > u32::MAX as u64
+            }
+            fn is_valid_snowflake(_input: u64) -> bool {
+                true
+            }
+        }
+
+        impl Epoch for SimpleParams {
+            fn millis_since_unix() -> u64 {
+                0
+            }
+        }
+
+        type SimpleSnowflake = Snowflake<SimpleParams, SimpleParams>;
+
+        let (less, equal, greater) = (
+            SimpleSnowflake::from_raw((timestamp - 1) << 32 | 3).unwrap(),
+            SimpleSnowflake::from_raw(timestamp << 32 | 2).unwrap(),
+            SimpleSnowflake::from_raw((timestamp + 1) << 32 | 1).unwrap(),
+        );
+        crate::snowflake_tests::validate_partial_ord(comparator, less, equal, greater);
+        // We can't implement Eq and Ord for comparators and snowflakes, as these traits don't have any type parameters,
+        // so we can't test those implementations either.
+
+        let snowflake = SimpleSnowflake::from_raw(timestamp << 32).unwrap();
+        let (less, equal, greater) = (
+            SnowflakeComparator::from_raw_timestamp(timestamp - 1),
+            SnowflakeComparator::from_raw_timestamp(timestamp),
+            SnowflakeComparator::from_raw_timestamp(timestamp + 1),
+        );
+        crate::snowflake_tests::validate_partial_ord(snowflake, less, equal, greater);
+    }
+
+    #[test]
+    fn extreme_epoch() {
+        // Test epochs that make snowflakes exceed the underlying data type of comparators (the PartialOrd
+        // implementation still works as expected)
+        struct ExtremeParams;
+
+        impl Epoch for ExtremeParams {
+            fn millis_since_unix() -> u64 {
+                u64::MAX
+            }
+        }
+
+        impl MachineId for ExtremeParams {
+            fn machine_id() -> u64 {
+                // Return a not-so-extreme constant 0
+                0
+            }
+        }
+
+        type ExtremeSnowflake = Snowflake<ClassicLayout<ExtremeParams>, ExtremeParams>;
+        let extreme = ExtremeSnowflake::from_raw((u64::MAX << 23) >> 1).unwrap();
+        let (small_comparator, large_comparator) = (
+            SnowflakeComparator::from_raw_timestamp(0),
+            SnowflakeComparator::from_raw_timestamp(u64::MAX),
+        );
+        assert!(small_comparator < extreme);
+        assert!(large_comparator < extreme);
+        assert!(extreme > small_comparator);
+        assert!(extreme > large_comparator);
+        assert!(extreme != small_comparator && extreme != large_comparator);
+        assert!(small_comparator != extreme && large_comparator != extreme);
+
+        // Create a snowflake with a timestamp that's only one millisecond past `large_comparator`
+        let extreme = ExtremeSnowflake::from_raw(1 << 22).unwrap();
+        assert!(small_comparator < extreme);
+        assert!(large_comparator < extreme);
+        assert!(extreme > small_comparator);
+        assert!(extreme > large_comparator);
+        assert!(extreme != small_comparator && extreme != large_comparator);
+        assert!(small_comparator != extreme && large_comparator != extreme);
+    }
+}
+// End skip coverage

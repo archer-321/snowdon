@@ -1474,10 +1474,11 @@ where
 
 // Skip coverage: We don't test the coverage of our unit tests
 #[cfg(test)]
-mod snowflake_tests {
+pub mod snowflake_tests {
     use crate::system_time_mock::SystemTime;
     use crate::{Epoch, Error, Layout, Snowflake};
     use std::cmp::{max, max_by, min, min_by, Ordering};
+    use std::fmt::Debug;
     use std::time::Duration;
 
     #[derive(Debug)]
@@ -1619,77 +1620,98 @@ mod snowflake_tests {
     }
 
     #[test]
-    #[allow(clippy::nonminimal_bool)]
     fn ord() {
         for timestamp in 0..1 {
             let foo = SimpleSnowflake::from_raw(timestamp << 22 | 2).unwrap();
-            let (smaller, equal, greater) = (
+            let (less, equal, greater) = (
                 SimpleSnowflake::from_raw(timestamp << 22 | 1).unwrap(),
                 SimpleSnowflake::from_raw(timestamp << 22 | 2).unwrap(),
                 SimpleSnowflake::from_raw(timestamp << 22 | 3).unwrap(),
             );
-            // PartialEq
-            assert_ne!(foo, smaller);
-            assert!(!(foo == smaller));
-            assert_eq!(foo, equal);
-            assert!(!(foo != equal));
-            assert_ne!(foo, greater);
-            assert!(!(foo == greater));
-
-            // Eq
-            assert_eq!(foo, foo);
-            assert_eq!(foo, equal);
-            assert_eq!(equal, foo);
-            // We don't check transitivity here, as the test would be trivial
-
-            // PartialOrd
-            assert_ne!(Ordering::Equal, PartialOrd::partial_cmp(&foo, &smaller).unwrap());
-            assert_eq!(Ordering::Equal, PartialOrd::partial_cmp(&foo, &equal).unwrap());
-            assert_ne!(Ordering::Equal, PartialOrd::partial_cmp(&foo, &greater).unwrap());
-            assert_eq!(Ordering::Less, PartialOrd::partial_cmp(&smaller, &foo).unwrap());
-            assert_ne!(Ordering::Less, PartialOrd::partial_cmp(&foo, &equal).unwrap());
-            assert_eq!(Ordering::Less, PartialOrd::partial_cmp(&foo, &greater).unwrap());
-            assert_eq!(Ordering::Greater, PartialOrd::partial_cmp(&foo, &smaller).unwrap());
-            assert_ne!(Ordering::Greater, PartialOrd::partial_cmp(&foo, &equal).unwrap());
-            assert_eq!(Ordering::Greater, PartialOrd::partial_cmp(&greater, &foo).unwrap());
-            assert!(foo <= equal && foo <= greater);
-            assert!(!(foo <= smaller));
-            assert!(foo >= smaller && foo >= equal);
-            assert!(!(foo >= greater));
-
-            // Ord
-            assert_eq!(
-                PartialOrd::partial_cmp(&foo, &smaller).unwrap(),
-                Ord::cmp(&foo, &smaller)
-            );
-            assert_eq!(
-                PartialOrd::partial_cmp(&smaller, &foo).unwrap(),
-                Ord::cmp(&smaller, &foo)
-            );
-            assert_eq!(PartialOrd::partial_cmp(&foo, &equal).unwrap(), Ord::cmp(&foo, &equal));
-            assert_eq!(PartialOrd::partial_cmp(&equal, &foo).unwrap(), Ord::cmp(&equal, &foo));
-            assert_eq!(
-                PartialOrd::partial_cmp(&foo, &greater).unwrap(),
-                Ord::cmp(&foo, &greater)
-            );
-            assert_eq!(
-                PartialOrd::partial_cmp(&greater, &foo).unwrap(),
-                Ord::cmp(&greater, &foo)
-            );
-            assert_eq!(max(foo, smaller), max_by(foo, smaller, Ord::cmp));
-            assert_eq!(max(smaller, foo), max_by(smaller, foo, Ord::cmp));
-            assert_eq!(max(foo, equal), max_by(foo, equal, Ord::cmp));
-            assert_eq!(max(equal, foo), max_by(equal, foo, Ord::cmp));
-            assert_eq!(max(foo, greater), max_by(foo, greater, Ord::cmp));
-            assert_eq!(max(greater, foo), max_by(greater, foo, Ord::cmp));
-            assert_eq!(min(foo, smaller), min_by(foo, smaller, Ord::cmp));
-            assert_eq!(min(smaller, foo), min_by(smaller, foo, Ord::cmp));
-            assert_eq!(min(foo, equal), min_by(foo, equal, Ord::cmp));
-            assert_eq!(min(equal, foo), min_by(equal, foo, Ord::cmp));
-            assert_eq!(min(foo, greater), min_by(foo, greater, Ord::cmp));
-            assert_eq!(min(greater, foo), min_by(greater, foo, Ord::cmp));
-            // We don't check clamp here, as the tests above should imply correct behaviour there
+            validate_partial_ord(foo, less, equal, greater);
+            validate_ord(foo, less, equal, greater);
         }
+    }
+
+    #[allow(clippy::nonminimal_bool)]
+    pub(crate) fn validate_partial_ord<T, O>(original: T, less: O, equal: O, greater: O)
+    where
+        T: Ord + Eq + PartialOrd<O> + PartialEq<O> + Debug,
+        O: PartialEq<T> + PartialOrd<T> + Debug,
+    {
+        // PartialEq
+        assert_ne!(original, less);
+        assert!(!(original == less));
+        assert_eq!(original, equal);
+        assert!(!(original != equal));
+        assert_ne!(original, greater);
+        assert!(!(original == greater));
+
+        // PartialOrd
+        assert_ne!(Ordering::Equal, PartialOrd::partial_cmp(&original, &less).unwrap());
+        assert_eq!(Ordering::Equal, PartialOrd::partial_cmp(&original, &equal).unwrap());
+        assert_ne!(Ordering::Equal, PartialOrd::partial_cmp(&original, &greater).unwrap());
+        assert_eq!(Ordering::Less, PartialOrd::partial_cmp(&less, &original).unwrap());
+        assert_ne!(Ordering::Less, PartialOrd::partial_cmp(&original, &equal).unwrap());
+        assert_eq!(Ordering::Less, PartialOrd::partial_cmp(&original, &greater).unwrap());
+        assert_eq!(Ordering::Greater, PartialOrd::partial_cmp(&original, &less).unwrap());
+        assert_ne!(Ordering::Greater, PartialOrd::partial_cmp(&original, &equal).unwrap());
+        assert_eq!(Ordering::Greater, PartialOrd::partial_cmp(&greater, &original).unwrap());
+        assert!(original <= equal && original <= greater);
+        assert!(!(original <= less));
+        assert!(original >= less && original >= equal);
+        assert!(!(original >= greater));
+    }
+
+    #[allow(clippy::eq_op)]
+    pub(crate) fn validate_ord<T>(original: T, less: T, equal: T, greater: T)
+    where
+        T: Eq + Ord + Debug + Copy,
+    {
+        // Eq
+        assert_eq!(original, original);
+        assert_eq!(original, equal);
+        assert_eq!(equal, original);
+        // We don't check transitivity here, as the test would be trivial
+
+        // Ord
+        assert_eq!(
+            PartialOrd::partial_cmp(&original, &less).unwrap(),
+            Ord::cmp(&original, &less)
+        );
+        assert_eq!(
+            PartialOrd::partial_cmp(&less, &original).unwrap(),
+            Ord::cmp(&less, &original)
+        );
+        assert_eq!(
+            PartialOrd::partial_cmp(&original, &equal).unwrap(),
+            Ord::cmp(&original, &equal)
+        );
+        assert_eq!(
+            PartialOrd::partial_cmp(&equal, &original).unwrap(),
+            Ord::cmp(&equal, &original)
+        );
+        assert_eq!(
+            PartialOrd::partial_cmp(&original, &greater).unwrap(),
+            Ord::cmp(&original, &greater)
+        );
+        assert_eq!(
+            PartialOrd::partial_cmp(&greater, &original).unwrap(),
+            Ord::cmp(&greater, &original)
+        );
+        assert_eq!(max(original, less), max_by(original, less, Ord::cmp));
+        assert_eq!(max(less, original), max_by(less, original, Ord::cmp));
+        assert_eq!(max(original, equal), max_by(original, equal, Ord::cmp));
+        assert_eq!(max(equal, original), max_by(equal, original, Ord::cmp));
+        assert_eq!(max(original, greater), max_by(original, greater, Ord::cmp));
+        assert_eq!(max(greater, original), max_by(greater, original, Ord::cmp));
+        assert_eq!(min(original, less), min_by(original, less, Ord::cmp));
+        assert_eq!(min(less, original), min_by(less, original, Ord::cmp));
+        assert_eq!(min(original, equal), min_by(original, equal, Ord::cmp));
+        assert_eq!(min(equal, original), min_by(equal, original, Ord::cmp));
+        assert_eq!(min(original, greater), min_by(original, greater, Ord::cmp));
+        assert_eq!(min(greater, original), min_by(greater, original, Ord::cmp));
+        // We don't check clamp here, as the tests above should imply correct behaviour there
     }
 
     #[test]

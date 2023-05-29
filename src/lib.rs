@@ -445,11 +445,11 @@ where
         // Initially, load the last generated snowflake once. If the CAS loop below has to loop, we overwrite this value
         // with the result of our CAS operation.
         // Note that we don't have to see all previous threads' modifications at this point. Our CAS operation below
-        // establishes an inter-thread happens-before relationship with other threads. I.e., we only successfully
-        // generate a new snowflake if we saw all other threads' store operations on this variable. If we see an
-        // outdated value here (or if another thread interleaves), we simply try again.
-        // Naturally, this load operation can't be reordered after the store below, as the value loaded here carries a
-        // dependency into the load operation of the CAS operation below.
+        // establishes a happens-before relationship with other threads. I.e., we only successfully generate a new
+        // snowflake if we saw all other threads' store operations on this variable. If we see an outdated value here
+        // (or if another thread interleaves), we simply try again.
+        // Naturally, this load operation can't be reordered after the store below, as this load is sequenced before the
+        // store at the bottom within this thread.
         let mut last_snowflake = self.last_snowflake_atomic.load(atomic::Ordering::Relaxed);
         // This CAS loop is the same as `AtomicU64::fetch_update`. However, we use the
         // manual loop implementation, as our update algorithm (the snowflake
@@ -487,16 +487,22 @@ where
                 }
             };
             let new_snowflake = L::construct_snowflake(time, sequence);
-            // The load operation of the `compare_exchange_weak` below needs to see all previous writes. I.e., other
-            // writes to this value need to be in an inter-thread happens-before relationship with this load. We need to
-            // load the value with Acquire ordering and store it with Release to make this thread synchronize with other
-            // threads.
-            // Note that we don't necessarily need to see all previous stores if this operation fails. Refer to the
-            // comment above the `load` operation above for details.
+            // The load operation of the `compare_exchange_weak` below needs to see all previous writes to this value.
+            // Even when using `Relaxed` ordering for the load here, the modification order of `last_snowflake_atomic`
+            // guarantees that we see all previous writes to that value.
+            // More specifically, all modifications to the value occur in a single total order specific to this value.
+            // Regardless of which write appears first in the modification order of `last_snowflake_atomic`, the write
+            // operation that appears first (write A) *happens before* the write operation that appears after (write B)
+            // because of write-write coherence.
+            // Within the thread of write B, the load operation is sequenced before write B but *after* write A, as no
+            // other atomic operations can interleave between the load and store of the CAS operation (so write B
+            // happening after write A also means that the load happens after write A). Because write A happens before
+            // the load of write B's CAS operation, it's guaranteed to see the value stored by write A because of
+            // write-read coherence. This is exactly the behaviour we're looking for.
             match self.last_snowflake_atomic.compare_exchange_weak(
                 last_snowflake,
                 new_snowflake,
-                atomic::Ordering::AcqRel,
+                atomic::Ordering::Relaxed,
                 atomic::Ordering::Relaxed,
             ) {
                 Ok(_) => {

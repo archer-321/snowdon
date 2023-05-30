@@ -18,11 +18,19 @@ criterion = "^0.4"
 lazy_static = "^1.4"
 parking_lot = "^0.12"
 
+[target.'cfg(loom)'.dependencies]
+loom = "^0.5"
+
 [features]
 default = ["blocking"]
 lock-free = []
 blocking = []
 serde = ["dep:serde"]
+
+[[test]]
+name = "loom_generator"
+# Running this test requires `--cfg loom`, so we don't run it by default
+test = false
 
 [[bench]]
 name = "simple_snowflake"

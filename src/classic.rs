@@ -231,9 +231,9 @@ pub trait MachineId {
 // Skip coverage: We don't test the coverage of our unit tests
 #[cfg(test)]
 mod tests {
+    use crate::sync::atomic::{AtomicU64, Ordering};
+    use crate::sync::{Mutex, MutexGuard};
     use crate::{ClassicLayout, ClassicLayoutSnowflakeExtension, Epoch, Layout, MachineId, Snowflake};
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::sync::{Mutex, MutexGuard};
 
     static MACHINE_ID: AtomicU64 = AtomicU64::new(0);
     static MACHINE_LOCK: Mutex<()> = Mutex::new(());
@@ -242,7 +242,7 @@ mod tests {
 
     impl SimpleMachineId {
         fn set_id(id: u64) {
-            MACHINE_ID.store(id, Ordering::Release);
+            MACHINE_ID.store(id, Ordering::Relaxed);
         }
         fn acquire_lock() -> MutexGuard<'static, ()> {
             MACHINE_LOCK.lock().unwrap_or_else(|e| e.into_inner())
@@ -251,7 +251,7 @@ mod tests {
 
     impl MachineId for SimpleMachineId {
         fn machine_id() -> u64 {
-            MACHINE_ID.load(Ordering::Acquire)
+            MACHINE_ID.load(Ordering::Relaxed)
         }
     }
 

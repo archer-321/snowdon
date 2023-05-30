@@ -148,33 +148,58 @@
 #[cfg(not(any(feature = "blocking", feature = "lock-free")))]
 compile_error!("you must enable at least one generator implementation (blocking or lock-free)");
 
+#[cfg(feature = "lock-free")]
+use crate::sync::atomic;
+#[cfg(feature = "lock-free")]
+use crate::sync::atomic::AtomicU64;
+use crate::sync::Arc;
+#[cfg(feature = "blocking")]
+use crate::sync::Mutex;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::cmp;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
-#[cfg(feature = "lock-free")]
-use std::sync::atomic;
-#[cfg(feature = "lock-free")]
-use std::sync::atomic::AtomicU64;
-use std::sync::Arc;
-#[cfg(feature = "blocking")]
-use std::sync::Mutex;
 use std::time::Duration;
-#[cfg(not(test))]
+#[cfg(not(any(test, loom)))]
 use std::time::SystemTime;
-#[cfg(test)]
+#[cfg(any(test, loom))]
 use system_time_mock::SystemTime;
 
 mod classic;
 mod comparator;
 
-// A mocked system time to run our unit tests
-#[cfg(test)]
-mod system_time_mock {
-    use lazy_static::lazy_static;
-    use std::sync::{Mutex, MutexGuard};
+mod sync {
+    #[cfg(test)]
+    pub(crate) use lazy_static::lazy_static;
+    #[cfg(all(loom))]
+    pub(crate) use loom::lazy_static;
+    #[cfg(all(feature = "lock-free", loom))]
+    pub(crate) use loom::sync::atomic;
+    #[cfg(loom)]
+    pub(crate) use loom::sync::Arc;
+    #[cfg(all(feature = "blocking", loom))]
+    pub(crate) use loom::sync::Mutex;
+    #[cfg(all(loom))]
+    pub(crate) use loom::sync::MutexGuard;
+    #[cfg(all(any(feature = "lock-free", test), not(loom)))]
+    pub(crate) use std::sync::atomic;
+    #[cfg(not(loom))]
+    pub(crate) use std::sync::Arc;
+    #[cfg(any(all(any(feature = "blocking", test), not(loom))))]
+    pub(crate) use std::sync::Mutex;
+    #[cfg(all(test, not(loom)))]
+    pub(crate) use std::sync::MutexGuard;
+}
+
+// A mocked system time to run our unit tests. We also include this if the crate is compiled for loom tests to allow
+// external crates to use this mock.
+// Explicitly hide this module to prevent accidentally showing this API if rustdoc runs with the `loom` feature flag.
+#[doc(hidden)]
+#[cfg(any(test, loom))]
+pub mod system_time_mock {
+    use crate::sync::{lazy_static, Mutex, MutexGuard};
     use std::time::Duration;
 
     lazy_static! {
@@ -194,7 +219,7 @@ mod system_time_mock {
         pub const UNIX_EPOCH: Self = Self(0);
 
         /// Sets the current time to the given number of milliseconds since the Unix epoch.
-        pub(crate) fn set_time(time: u64) {
+        pub fn set_time(time: u64) {
             *TIME.lock().unwrap() = time;
         }
 
@@ -202,7 +227,7 @@ mod system_time_mock {
         ///
         /// This function is used to ensure that tests don't mutate the global time state concurrently. In tests, you
         /// should acquire this lock and only drop the returned guard *after* your test has finished.
-        pub(crate) fn acquire_lock() -> MutexGuard<'static, ()> {
+        pub fn acquire_lock() -> MutexGuard<'static, ()> {
             // If a previous test panicked, this lock will be poisoned. We don't care about the ZST inside, however,
             // as we only use this lock to ensure only one test is mutating the system time at any given moment.
             TIME_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())

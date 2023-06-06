@@ -6,9 +6,12 @@ edition = "2021"
 rust-version = "1.56.1"
 description = "A lightweight thread-safe snowflake ID implementation for Rust"
 readme = "README.md"
+repository = "https://github.com/archer-321/snowdon"
+documentation = "https://docs.rs/snowdon"
 license = "Apache-2.0"
 keywords = ["snowflake", "id", "lock-free", "lightweight"]
 categories = ["concurrency", "web-programming"]
+exclude = ["/spin", "/.rustfmt-nightly.toml"]
 
 [dependencies]
 serde = { version = "^1.0", features = ["derive"], optional = true }

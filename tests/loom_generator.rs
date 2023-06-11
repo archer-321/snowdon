@@ -31,13 +31,13 @@ impl Layout for SimpleParams {
         assert!(!Self::exceeds_timestamp(timestamp) && !Self::exceeds_sequence_number(sequence_number));
         timestamp << 22 | sequence_number
     }
-    fn get_timestamp(input: u64) -> u64 {
+    fn timestamp(input: u64) -> u64 {
         input >> 22
     }
     fn exceeds_timestamp(input: u64) -> bool {
         input >= 1 << 42
     }
-    fn get_sequence_number(input: u64) -> u64 {
+    fn sequence_number(input: u64) -> u64 {
         input & ((1 << 22) - 1)
     }
     fn exceeds_sequence_number(input: u64) -> bool {
@@ -72,7 +72,7 @@ fn unique_lock_free() {
                 thread::spawn(move || {
                     // Generate 3 snowflakes and return them
                     (0..3)
-                        .map(|_| generator.generate_lock_free().unwrap().get())
+                        .map(|_| generator.generate_lock_free().unwrap().into_inner())
                         .collect::<Vec<_>>()
                 })
             })
@@ -88,6 +88,5 @@ fn unique_lock_free() {
         }
         time.join().unwrap();
         assert_eq!(6, set.len());
-
     });
 }

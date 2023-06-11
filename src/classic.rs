@@ -58,9 +58,9 @@ use std::marker::PhantomData;
 ///
 /// // Use our snowflake format
 /// let snowflake = MySnowflake::from_raw(1541815603606036480).unwrap();
-/// assert_eq!(367597485448, snowflake.get_timestamp_raw());
-/// assert_eq!(0x017A, snowflake.get_machine_id());
-/// assert_eq!(0, snowflake.get_sequence_number());
+/// assert_eq!(367597485448, snowflake.timestamp_raw());
+/// assert_eq!(0x017A, snowflake.machine_id());
+/// assert_eq!(0, snowflake.sequence_number());
 /// ```
 #[derive(Debug)]
 pub struct ClassicLayout<I>
@@ -85,10 +85,10 @@ where
     /// Returns the machine ID of the given snowflake.
     ///
     /// Usually, you shouldn't call this function directly. Instead, use
-    /// [`get_machine_id`](ClassicLayoutSnowflakeExtension::get_machine_id) directly on the snowflake by importing
+    /// [`machine_id`](ClassicLayoutSnowflakeExtension::machine_id) directly on the snowflake by importing
     /// `ClassicLayoutSnowflakeExtension`.
     #[inline]
-    pub fn get_machine_id(input: u64) -> u64 {
+    pub fn machine_id(input: u64) -> u64 {
         (input & Self::MACHINE_ID_MASK) >> Self::SEQUENCE_NUMBER_BITS
     }
 
@@ -117,7 +117,7 @@ where
     }
 
     #[inline]
-    fn get_timestamp(input: u64) -> u64 {
+    fn timestamp(input: u64) -> u64 {
         (input & Self::TIMESTAMP_MASK) >> (Self::MACHINE_ID_BITS + Self::SEQUENCE_NUMBER_BITS)
     }
 
@@ -127,7 +127,7 @@ where
     }
 
     #[inline]
-    fn get_sequence_number(input: u64) -> u64 {
+    fn sequence_number(input: u64) -> u64 {
         input & Self::SEQUENCE_NUMBER_MASK
     }
 
@@ -150,10 +150,10 @@ where
 /// # Example
 ///
 /// ```
-/// # use snowdon::{Epoch, MachineId};
 /// use snowdon::{
 ///     ClassicLayout, ClassicLayoutSnowflakeExtension, Generator, Snowflake,
 /// };
+/// # use snowdon::{Epoch, MachineId};
 /// # struct SnowflakeParams;
 /// # impl Epoch for SnowflakeParams {
 /// #     fn millis_since_unix() -> u64 {
@@ -165,33 +165,32 @@ where
 /// #     fn machine_id() -> u64 {
 /// #         // Somehow obtain this machine's ID (e.g. from the private IP
 /// #         // address or a configuration file)
-/// #        0
+/// #         0
 /// #     }
 /// # }
 ///
-/// type MySnowflake =
-///     Snowflake<ClassicLayout<SnowflakeParams>, SnowflakeParams>;
+/// type MySnowflake = Snowflake<ClassicLayout<SnowflakeParams>, SnowflakeParams>;
 /// type MySnowflakeGenerator =
 ///     Generator<ClassicLayout<SnowflakeParams>, SnowflakeParams>;
 ///
 /// let snowflake = MySnowflake::from_raw(1541815603606036480).unwrap();
-/// assert_eq!(0x017A, snowflake.get_machine_id());
+/// assert_eq!(0x017A, snowflake.machine_id());
 /// assert_eq!(
-///     snowflake.get_machine_id(),
-///     ClassicLayout::<SnowflakeParams>::get_machine_id(snowflake.get())
+///     snowflake.machine_id(),
+///     ClassicLayout::<SnowflakeParams>::machine_id(snowflake.into_inner())
 /// );
 /// ```
 pub trait ClassicLayoutSnowflakeExtension {
     /// Returns the snowflake's machine ID.
     ///
     /// Refer to the [trait documentation](Self) for an example.
-    fn get_machine_id(&self) -> u64;
+    fn machine_id(&self) -> u64;
 
     /// Returns this snowflake as a positive signed integer.
     ///
     /// This layout guarantees that the first bit of a snowflake generated with it is `0`, so snowflakes using the
     /// `ClassicLayout` can safely be serialized as a signed 64-bit integer.
-    fn get_i64(&self) -> i64;
+    fn into_i64(self) -> i64;
 }
 
 impl<I, E> ClassicLayoutSnowflakeExtension for Snowflake<ClassicLayout<I>, E>
@@ -200,12 +199,12 @@ where
     E: Epoch,
 {
     #[inline]
-    fn get_machine_id(&self) -> u64 {
-        ClassicLayout::<I>::get_machine_id(self.get())
+    fn machine_id(&self) -> u64 {
+        ClassicLayout::<I>::machine_id(self.into_inner())
     }
 
     #[inline]
-    fn get_i64(&self) -> i64 {
+    fn into_i64(self) -> i64 {
         // This layout guarantees a constant `0` as the first bit. I.e., we can safely convert this to a signed integer
         // without having to worry about the resulting integer being negative.
         self.inner as i64
@@ -324,39 +323,33 @@ mod tests {
 
     #[test]
     fn getters() {
-        assert_eq!(0, ClassicLayout::<ZeroMachineId>::get_timestamp((1 << 22) - 1));
+        assert_eq!(0, ClassicLayout::<ZeroMachineId>::timestamp((1 << 22) - 1));
         assert_eq!(
             123,
-            ClassicLayout::<ZeroMachineId>::get_timestamp(123 << 22 | ((1 << 22) - 1))
+            ClassicLayout::<ZeroMachineId>::timestamp(123 << 22 | ((1 << 22) - 1))
         );
-        assert_eq!(
-            (1 << 41) - 1,
-            ClassicLayout::<ZeroMachineId>::get_timestamp(u64::MAX >> 1)
-        );
+        assert_eq!((1 << 41) - 1, ClassicLayout::<ZeroMachineId>::timestamp(u64::MAX >> 1));
         assert_eq!(
             0,
-            ClassicLayout::<ZeroMachineId>::get_sequence_number((u64::MAX << 13) >> 1)
+            ClassicLayout::<ZeroMachineId>::sequence_number((u64::MAX << 13) >> 1)
         );
         assert_eq!(
             123,
-            ClassicLayout::<ZeroMachineId>::get_sequence_number((u64::MAX << 13) >> 1 | 123)
+            ClassicLayout::<ZeroMachineId>::sequence_number((u64::MAX << 13) >> 1 | 123)
         );
         assert_eq!(
             (1 << 12) - 1,
-            ClassicLayout::<ZeroMachineId>::get_sequence_number(u64::MAX >> 1)
+            ClassicLayout::<ZeroMachineId>::sequence_number(u64::MAX >> 1)
         );
         assert_eq!(
             0,
-            ClassicLayout::<ZeroMachineId>::get_machine_id((u64::MAX << 23) >> 1 | ((1 << 12) - 1))
+            ClassicLayout::<ZeroMachineId>::machine_id((u64::MAX << 23) >> 1 | ((1 << 12) - 1))
         );
         assert_eq!(
             123,
-            ClassicLayout::<ZeroMachineId>::get_machine_id((u64::MAX << 23) >> 1 | 123 << 12 | ((1 << 12) - 1))
+            ClassicLayout::<ZeroMachineId>::machine_id((u64::MAX << 23) >> 1 | 123 << 12 | ((1 << 12) - 1))
         );
-        assert_eq!(
-            (1 << 10) - 1,
-            ClassicLayout::<ZeroMachineId>::get_machine_id(u64::MAX >> 1)
-        );
+        assert_eq!((1 << 10) - 1, ClassicLayout::<ZeroMachineId>::machine_id(u64::MAX >> 1));
     }
 
     #[test]
@@ -370,11 +363,11 @@ mod tests {
         }
 
         type SimpleSnowflake = Snowflake<ClassicLayout<ZeroMachineId>, SimpleEpoch>;
-        assert_eq!(0, SimpleSnowflake::from_raw(0).unwrap().get_machine_id());
-        assert_eq!(234, SimpleSnowflake::from_raw(234 << 12).unwrap().get_machine_id());
+        assert_eq!(0, SimpleSnowflake::from_raw(0).unwrap().machine_id());
+        assert_eq!(234, SimpleSnowflake::from_raw(234 << 12).unwrap().machine_id());
         assert_eq!(
             (1 << 10) - 1,
-            SimpleSnowflake::from_raw(u64::MAX >> 1).unwrap().get_machine_id()
+            SimpleSnowflake::from_raw(u64::MAX >> 1).unwrap().machine_id()
         );
     }
 }

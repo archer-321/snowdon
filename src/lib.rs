@@ -60,7 +60,7 @@
 //! use snowdon::{Epoch, Generator, Layout, Snowflake, SnowflakeComparator};
 //! use std::time::SystemTime;
 //!
-//! fn get_machine_id() -> u64 {
+//! fn machine_id() -> u64 {
 //!     // This is where you would implement your machine ID
 //! #   0
 //! }
@@ -77,15 +77,15 @@
 //!             !Self::exceeds_timestamp(timestamp)
 //!                 && !Self::exceeds_sequence_number(sequence_number)
 //!         );
-//!         (timestamp << 22) | (get_machine_id() << 12) | sequence_number
+//!         (timestamp << 22) | (machine_id() << 12) | sequence_number
 //!     }
-//!     fn get_timestamp(input: u64) -> u64 {
+//!     fn timestamp(input: u64) -> u64 {
 //!         input >> 22
 //!     }
 //!     fn exceeds_timestamp(input: u64) -> bool {
 //!         input >= (1 << 42)
 //!     }
-//!     fn get_sequence_number(input: u64) -> u64 {
+//!     fn sequence_number(input: u64) -> u64 {
 //!         input & ((1 << 12) - 1)
 //!     }
 //!     fn exceeds_sequence_number(input: u64) -> bool {
@@ -129,7 +129,7 @@
 //! let second_snowflake = generator.generate().unwrap();
 //! assert!(first_snowflake < second_snowflake);
 //!
-//! let timestamp = first_snowflake.get_timestamp().unwrap();
+//! let timestamp = first_snowflake.timestamp().unwrap();
 //! let comparator =
 //!     SnowflakeComparator::from_system_time(SystemTime::UNIX_EPOCH).unwrap();
 //! assert!(comparator < first_snowflake);
@@ -402,13 +402,13 @@ where
         let mut last_snowflake = self.last_snowflake_blocking.lock().unwrap();
         // Acquire the timestamp *after* we got the lock to be more accurate about our
         // non-monotonic clock errors
-        let time = Self::get_timestamp()?;
-        let last_timestamp = L::get_timestamp(*last_snowflake);
+        let time = Self::timestamp()?;
+        let last_timestamp = L::timestamp(*last_snowflake);
         match last_timestamp.cmp(&time) {
             cmp::Ordering::Equal => {
                 // We've already generated a snowflake for this timestamp, so increment the
                 // sequence number
-                let sequence = L::get_sequence_number(*last_snowflake)
+                let sequence = L::sequence_number(*last_snowflake)
                     .checked_add(1)
                     .ok_or(Error::SnowflakeExhaustion)?;
                 if L::exceeds_sequence_number(sequence) {
@@ -484,12 +484,12 @@ where
         // operation at the bottom to fail (deterministically).
         loop {
             // End skip coverage (loop statement above)
-            let time = Self::get_timestamp()?;
-            let last_timestamp = L::get_timestamp(last_snowflake);
+            let time = Self::timestamp()?;
+            let last_timestamp = L::timestamp(last_snowflake);
             let sequence = match last_timestamp.cmp(&time) {
                 cmp::Ordering::Equal => {
                     // The timestamp didn't change, so increment the sequence number
-                    L::get_sequence_number(last_snowflake)
+                    L::sequence_number(last_snowflake)
                         .checked_add(1)
                         .and_then(|sequence| {
                             if L::exceeds_sequence_number(sequence) {
@@ -551,7 +551,7 @@ where
     ///
     /// If this generator's epoch is *after* the current timestamp, this returns [`Error::InvalidEpoch`]. If the
     /// timestamp wouldn't fit in this generator's layout, this function returns [`Error::FatalSnowflakeExhaustion`].
-    fn get_timestamp() -> Result<u64> {
+    fn timestamp() -> Result<u64> {
         let time = SystemTime::now()
             .duration_since(
                 SystemTime::UNIX_EPOCH
@@ -632,13 +632,13 @@ mod generator_tests {
             assert!(!Self::exceeds_timestamp(timestamp) && !Self::exceeds_sequence_number(sequence_number));
             timestamp << 12 | sequence_number
         }
-        fn get_timestamp(input: u64) -> u64 {
+        fn timestamp(input: u64) -> u64 {
             input >> 12
         }
         fn exceeds_timestamp(input: u64) -> bool {
             input >= (1 << 51)
         }
-        fn get_sequence_number(input: u64) -> u64 {
+        fn sequence_number(input: u64) -> u64 {
             input & ((1 << 12) - 1)
         }
         fn exceeds_sequence_number(input: u64) -> bool {
@@ -765,14 +765,14 @@ mod generator_tests {
             fn construct_snowflake(_timestamp: u64, sequence_number: u64) -> u64 {
                 sequence_number
             }
-            fn get_timestamp(_input: u64) -> u64 {
+            fn timestamp(_input: u64) -> u64 {
                 0
             }
             fn exceeds_timestamp(_input: u64) -> bool {
                 // Lie about the timestamp
                 false
             }
-            fn get_sequence_number(input: u64) -> u64 {
+            fn sequence_number(input: u64) -> u64 {
                 input
             }
             fn exceeds_sequence_number(_input: u64) -> bool {
@@ -947,7 +947,7 @@ pub trait Layout {
     /// use snowdon::Layout;
     ///
     /// struct MyLayout;
-    /// # fn get_machine_id() -> u64 { 0 }
+    /// # fn machine_id() -> u64 { 0 }
     ///
     /// impl Layout for MyLayout {
     ///     fn construct_snowflake(timestamp: u64, sequence_number: u64) -> u64 {
@@ -957,17 +957,17 @@ pub trait Layout {
     ///         );
     ///         // `exceeds_timestamp` enforces that the timestamp is at most 41 bits,
     ///         // so the first bit will always be 0
-    ///         (timestamp << 22) | (get_machine_id() << 12) | sequence_number
+    ///         (timestamp << 22) | (machine_id() << 12) | sequence_number
     ///     }
     ///
     ///     // ...
-    /// #   fn get_timestamp(input: u64) -> u64 {
+    /// #   fn timestamp(input: u64) -> u64 {
     /// #       unimplemented!()
     /// #   }
     /// #   fn exceeds_timestamp(input: u64) -> bool {
     /// #       false
     /// #   }
-    /// #   fn get_sequence_number(input: u64) -> u64 {
+    /// #   fn sequence_number(input: u64) -> u64 {
     /// #       unimplemented!()
     /// #   }
     /// #   fn exceeds_sequence_number(input: u64) -> bool {
@@ -978,7 +978,7 @@ pub trait Layout {
     /// #   }
     /// }
     ///
-    /// // For this example, get_machine_id always returns 0
+    /// // For this example, machine_id always returns 0
     /// assert_eq!(0x400002, MyLayout::construct_snowflake(1, 2));
     /// ```
     fn construct_snowflake(timestamp: u64, sequence_number: u64) -> u64;
@@ -988,7 +988,7 @@ pub trait Layout {
     /// snowflake's epoch. Most importantly, it's *not* the number of milliseconds since the Unix epoch unless the
     /// snowflake uses this epoch.
     ///
-    /// Instead of using this function directly, you should use [`Snowflake::get_timestamp()`] to retrieve a snowflake's
+    /// Instead of using this function directly, you should use [`Snowflake::timestamp()`] to retrieve a snowflake's
     /// timestamp.
     ///
     /// # Example
@@ -1004,7 +1004,7 @@ pub trait Layout {
     /// #   fn construct_snowflake(timestamp: u64, sequence_number: u64) -> u64 {
     /// #       unimplemented!()
     /// #   }
-    ///     fn get_timestamp(input: u64) -> u64 {
+    ///     fn timestamp(input: u64) -> u64 {
     ///         // The first bit is guaranteed to be a 0, so we don't have to remove this constant part here
     ///         input >> 22
     ///     }
@@ -1013,7 +1013,7 @@ pub trait Layout {
     /// #   fn exceeds_timestamp(input: u64) -> bool {
     /// #       unimplemented!()
     /// #   }
-    /// #   fn get_sequence_number(input: u64) -> u64 {
+    /// #   fn sequence_number(input: u64) -> u64 {
     /// #       unimplemented!()
     /// #   }
     /// #   fn exceeds_sequence_number(input: u64) -> bool {
@@ -1024,9 +1024,9 @@ pub trait Layout {
     /// #   }
     /// }
     ///
-    /// assert_eq!(1, MyLayout::get_timestamp(0x400002));
+    /// assert_eq!(1, MyLayout::timestamp(0x400002));
     /// ```
-    fn get_timestamp(input: u64) -> u64;
+    fn timestamp(input: u64) -> u64;
     /// Returns whether the given timestamp exceeds the number of bits dedicated to timestamps in this layout.
     ///
     /// If this function returns `false`, the given timestamp must fit inside a snowflake without losing or overwriting
@@ -1048,7 +1048,7 @@ pub trait Layout {
     /// #   fn construct_snowflake(timestamp: u64, sequence_number: u64) -> u64 {
     /// #       unimplemented!()
     /// #   }
-    /// #   fn get_timestamp(input: u64) -> u64 {
+    /// #   fn timestamp(input: u64) -> u64 {
     /// #       unimplemented!()
     /// #   }
     ///     fn exceeds_timestamp(input: u64) -> bool {
@@ -1056,7 +1056,7 @@ pub trait Layout {
     ///     }
     ///
     ///     // ...
-    /// #   fn get_sequence_number(input: u64) -> u64 {
+    /// #   fn sequence_number(input: u64) -> u64 {
     /// #       unimplemented!()
     /// #   }
     /// #   fn exceeds_sequence_number(input: u64) -> bool {
@@ -1076,7 +1076,7 @@ pub trait Layout {
     /// With Snowdon's guarantee that there are no "holes" in sequence numbers generated by [`Generator`], a sequence
     /// number of `n` means that this is the `n + 1`th snowflake generated for the same timestamp.
     ///
-    /// Instead of using this function directly, you should use [`Snowflake::get_sequence_number`] to retrieve the
+    /// Instead of using this function directly, you should use [`Snowflake::sequence_number`] to retrieve the
     /// sequence number of a snowflake.
     ///
     /// # Example
@@ -1090,13 +1090,13 @@ pub trait Layout {
     /// #   fn construct_snowflake(timestamp: u64, sequence_number: u64) -> u64 {
     /// #       unimplemented!()
     /// #   }
-    /// #   fn get_timestamp(input: u64) -> u64 {
+    /// #   fn timestamp(input: u64) -> u64 {
     /// #       unimplemented!()
     /// #   }
     /// #   fn exceeds_timestamp(input: u64) -> bool {
     /// #       unimplemented!()
     /// #   }
-    ///     fn get_sequence_number(input: u64) -> u64 {
+    ///     fn sequence_number(input: u64) -> u64 {
     ///         input & ((1 << 12) - 1)
     ///     }
     ///
@@ -1109,9 +1109,9 @@ pub trait Layout {
     /// #   }
     /// }
     ///
-    /// assert_eq!(2, MyLayout::get_sequence_number(0x400002));
+    /// assert_eq!(2, MyLayout::sequence_number(0x400002));
     /// ```
-    fn get_sequence_number(input: u64) -> u64;
+    fn sequence_number(input: u64) -> u64;
     /// Returns whether the given sequence number exceeds the number of bits dedicated in this layout.
     ///
     /// If this function returns `false`, the given sequence number must fit inside a snowflake without losing or
@@ -1133,13 +1133,13 @@ pub trait Layout {
     /// #   fn construct_snowflake(timestamp: u64, sequence_number: u64) -> u64 {
     /// #       unimplemented!()
     /// #   }
-    /// #   fn get_timestamp(input: u64) -> u64 {
+    /// #   fn timestamp(input: u64) -> u64 {
     /// #       unimplemented!()
     /// #   }
     /// #   fn exceeds_timestamp(input: u64) -> bool {
     /// #       unimplemented!()
     /// #   }
-    /// #   fn get_sequence_number(input: u64) -> u64 {
+    /// #   fn sequence_number(input: u64) -> u64 {
     /// #       unimplemented!()
     /// #   }
     ///     fn exceeds_sequence_number(input: u64) -> bool {
@@ -1180,13 +1180,13 @@ pub trait Layout {
     /// #   fn construct_snowflake(timestamp: u64, sequence_number: u64) -> u64 {
     /// #       unimplemented!()
     /// #   }
-    /// #   fn get_timestamp(input: u64) -> u64 {
+    /// #   fn timestamp(input: u64) -> u64 {
     /// #       unimplemented!()
     /// #   }
     /// #   fn exceeds_timestamp(input: u64) -> bool {
     /// #       unimplemented!()
     /// #   }
-    /// #   fn get_sequence_number(input: u64) -> u64 {
+    /// #   fn sequence_number(input: u64) -> u64 {
     /// #       unimplemented!()
     /// #   }
     /// #   fn exceeds_sequence_number(input: u64) -> bool {
@@ -1239,7 +1239,7 @@ pub trait Epoch {
     /// precede the Unix epoch.
     ///
     /// Instead of using this function to interpret a timestamp extracted from a snowflake, you should use
-    /// [`Snowflake::get_timestamp`] instead. This method also detects potential problems that can occur if the
+    /// [`Snowflake::timestamp`] instead. This method also detects potential problems that can occur if the
     /// timestamp can't be represented with [`SystemTime`]'s underlying data type.
     ///
     /// Refer to the [trait's documentation](Self) for an example implementation.
@@ -1322,7 +1322,7 @@ pub trait Epoch {
 ///
 /// impl Message {
 ///     // ...
-///     pub fn get_id(&self) -> AwesomeSnowflake {
+///     pub fn id(&self) -> AwesomeSnowflake {
 ///         // Snowflakes implement Copy, so we can easily return this without
 ///         // cloning it manually
 ///         self.id
@@ -1376,7 +1376,7 @@ where
     /// Depending on the snowflake's [`Layout`], this integer could maintain (some of) its properties when cast to
     /// smaller or signed integers.
     #[inline]
-    pub fn get(&self) -> u64 {
+    pub fn into_inner(self) -> u64 {
         self.inner
     }
 
@@ -1387,12 +1387,12 @@ where
     /// snowflake, though.
     ///
     /// If you're looking for the raw number of milliseconds since the snowflake's epoch (or an infallible way to
-    /// retrieve a snowflake's timestamp), you should use [`get_timestamp_raw`](Self::get_timestamp_raw).
-    pub fn get_timestamp(&self) -> Result<SystemTime> {
+    /// retrieve a snowflake's timestamp), you should use [`timestamp_raw`](Self::timestamp_raw).
+    pub fn timestamp(&self) -> Result<SystemTime> {
         SystemTime::UNIX_EPOCH
             .checked_add(Duration::from_millis(
                 E::millis_since_unix()
-                    .checked_add(L::get_timestamp(self.inner))
+                    .checked_add(L::timestamp(self.inner))
                     .ok_or(Error::FatalSnowflakeExhaustion)?,
             ))
             .ok_or(Error::FatalSnowflakeExhaustion)
@@ -1400,10 +1400,10 @@ where
 
     /// Returns the number of milliseconds since this snowflake's epoch.
     ///
-    /// If you're looking for a [`SystemTime`] instance, you should use [`get_timestamp`](Self::get_timestamp) instead.
+    /// If you're looking for a [`SystemTime`] instance, you should use [`timestamp`](Self::timestamp) instead.
     #[inline]
-    pub fn get_timestamp_raw(&self) -> u64 {
-        L::get_timestamp(self.inner)
+    pub fn timestamp_raw(&self) -> u64 {
+        L::timestamp(self.inner)
     }
 
     /// Returns this snowflake's sequence number.
@@ -1411,8 +1411,8 @@ where
     /// With snowdon's guarantee that there are no "holes" in this number, a sequence number of `n` means that this is
     /// the `n + 1`th snowflake generated for this timestamp.
     #[inline]
-    pub fn get_sequence_number(&self) -> u64 {
-        L::get_sequence_number(self.inner)
+    pub fn sequence_number(&self) -> u64 {
+        L::sequence_number(self.inner)
     }
 }
 
@@ -1510,13 +1510,13 @@ pub mod snowflake_tests {
             assert!(!Self::exceeds_timestamp(timestamp) && !Self::exceeds_sequence_number(sequence_number));
             timestamp << 22 | sequence_number
         }
-        fn get_timestamp(input: u64) -> u64 {
+        fn timestamp(input: u64) -> u64 {
             input >> 22
         }
         fn exceeds_timestamp(input: u64) -> bool {
             input >= 1 << 41
         }
-        fn get_sequence_number(input: u64) -> u64 {
+        fn sequence_number(input: u64) -> u64 {
             input & ((1 << 12) - 1)
         }
         fn exceeds_sequence_number(input: u64) -> bool {
@@ -1546,30 +1546,28 @@ pub mod snowflake_tests {
             (1 << 63) - 1,
             SimpleSnowflake::from_raw((1 << 63) - 1)
                 .expect("`Snowflake::from_raw` rejected a valid snowflake")
-                .get(),
+                .into_inner(),
             "`Snowflake::from_raw` produced an unrelated snowflake"
         );
     }
 
     #[test]
-    fn get_timestamp() {
+    fn timestamp() {
         let snowflake = SimpleSnowflake::from_raw(123 << 22).unwrap();
         assert_eq!(
             SystemTime::UNIX_EPOCH.checked_add(Duration::from_millis(123)).unwrap(),
-            snowflake
-                .get_timestamp()
-                .expect("snowflake failed to return its timestamp"),
+            snowflake.timestamp().expect("snowflake failed to return its timestamp"),
             "snowflake returned an unrelated timestamp"
         );
         assert_eq!(
             123,
-            snowflake.get_timestamp_raw(),
+            snowflake.timestamp_raw(),
             "snowflake returned an unrelated raw timestamp"
         );
     }
 
     #[test]
-    fn get_timestamp_custom_epoch() {
+    fn timestamp_custom_epoch() {
         struct CustomEpoch;
 
         const EPOCH: u64 = 1024;
@@ -1587,39 +1585,39 @@ pub mod snowflake_tests {
                 .checked_add(Duration::from_millis(234 + EPOCH))
                 .unwrap(),
             snowflake
-                .get_timestamp()
+                .timestamp()
                 .expect("snowflake failed to return its timestamp with a custom epoch"),
             "snowflake didn't use the custom epoch to return a timestamp or returned an otherwise unrelated timestamp"
         );
         assert_eq!(
             234,
-            snowflake.get_timestamp_raw(),
+            snowflake.timestamp_raw(),
             "snowflake returned an invalid raw timestamp (possibly converting it to another epoch)"
         );
     }
 
     #[test]
-    fn get_sequence_number() {
+    fn sequence_number() {
         assert_eq!(
             0,
-            SimpleSnowflake::from_raw(0).unwrap().get_sequence_number(),
+            SimpleSnowflake::from_raw(0).unwrap().sequence_number(),
             "snowflake with sequence number 0 returned invalid sequence number"
         );
         assert_eq!(
             (1 << 12) - 1,
-            SimpleSnowflake::from_raw((1 << 12) - 1).unwrap().get_sequence_number(),
+            SimpleSnowflake::from_raw((1 << 12) - 1).unwrap().sequence_number(),
             "snowflake with max sequence number returned invalid sequence number"
         );
         assert_eq!(
             0,
-            SimpleSnowflake::from_raw(1 << 22).unwrap().get_sequence_number(),
+            SimpleSnowflake::from_raw(1 << 22).unwrap().sequence_number(),
             "snowflake failed to return sequence number 0 with a non-zero timestamp"
         );
         assert_eq!(
             (1 << 12) - 1,
             SimpleSnowflake::from_raw(1 << 22 | ((1 << 12) - 1))
                 .unwrap()
-                .get_sequence_number(),
+                .sequence_number(),
             "snowflake failed to return max sequence number with a non-zero timestamp"
         );
     }
@@ -1747,9 +1745,9 @@ pub mod snowflake_tests {
         }
 
         let snowflake = Snowflake::<SimpleParams, BadEpoch>::from_raw((u32::MAX as u64) << 22).unwrap();
-        assert_eq!(Error::FatalSnowflakeExhaustion, snowflake.get_timestamp().unwrap_err());
+        assert_eq!(Error::FatalSnowflakeExhaustion, snowflake.timestamp().unwrap_err());
         let snowflake = Snowflake::<SimpleParams, BadEpoch>::from_raw((1 << 63) - 1).unwrap();
-        assert_eq!(Error::FatalSnowflakeExhaustion, snowflake.get_timestamp().unwrap_err());
+        assert_eq!(Error::FatalSnowflakeExhaustion, snowflake.timestamp().unwrap_err());
     }
 }
 // End skip coverage

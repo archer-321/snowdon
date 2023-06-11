@@ -206,7 +206,11 @@ impl SnowflakeComparator {
     }
 }
 
-impl<L, E> TryFrom<Snowflake<L, E>> for SnowflakeComparator where L: Layout, E: Epoch {
+impl<L, E> TryFrom<Snowflake<L, E>> for SnowflakeComparator
+where
+    L: Layout,
+    E: Epoch,
+{
     type Error = Error;
 
     /// Tries to convert the given snowflake into a snowflake comparator.
@@ -227,13 +231,13 @@ impl<L, E> TryFrom<Snowflake<L, E>> for SnowflakeComparator where L: Layout, E: 
     /// #     fn construct_snowflake(timestamp: u64, sequence_number: u64) -> u64 {
     /// #         unimplemented!()
     /// #     }
-    /// #     fn get_timestamp(input: u64) -> u64 {
+    /// #     fn timestamp(input: u64) -> u64 {
     /// #         input >> 22
     /// #     }
     /// #     fn exceeds_timestamp(input: u64) -> bool {
     /// #         unimplemented!()
     /// #     }
-    /// #     fn get_sequence_number(input: u64) -> u64 {
+    /// #     fn sequence_number(input: u64) -> u64 {
     /// #         unimplemented!()
     /// #     }
     /// #     fn exceeds_sequence_number(input: u64) -> bool {
@@ -259,7 +263,7 @@ impl<L, E> TryFrom<Snowflake<L, E>> for SnowflakeComparator where L: Layout, E: 
     /// # Ok::<(), snowdon::Error>(())
     /// ```
     fn try_from(value: Snowflake<L, E>) -> std::result::Result<Self, Self::Error> {
-        SnowflakeComparator::from_timestamp::<E>(L::get_timestamp(value.inner))
+        SnowflakeComparator::from_timestamp::<E>(L::timestamp(value.inner))
     }
 }
 
@@ -277,7 +281,7 @@ where
 {
     /// Returns whether this snowflake comparator represents the same timestamp as the provided snowflake.
     fn eq(&self, other: &Snowflake<L, E>) -> bool {
-        let other = match Self::convert_epoch_timestamp::<E>(other.get_timestamp_raw()) {
+        let other = match Self::convert_epoch_timestamp::<E>(other.timestamp_raw()) {
             Ok(other) => other,
             Err(_) => {
                 // If the provided snowflake's timestamp can't be represented by an unsigned 64-bit integer, it's
@@ -296,7 +300,7 @@ where
 {
     /// Returns whether this snowflake's timestamp is the same as the provided comparator's timestamp.
     fn eq(&self, other: &SnowflakeComparator) -> bool {
-        let timestamp = match SnowflakeComparator::convert_epoch_timestamp::<E>(self.get_timestamp_raw()) {
+        let timestamp = match SnowflakeComparator::convert_epoch_timestamp::<E>(self.timestamp_raw()) {
             Ok(timestamp) => timestamp,
             Err(_) => {
                 // If this snowflake's timestamp can't be represented in a u64 using the Unix epoch, it's guaranteed to
@@ -341,7 +345,7 @@ where
         // If the timestamp overflows a u64, the timestamp in this comparator is guaranteed to be less.
         // For now, this will essentially never happen, but we can consider using more bits in about 585 million years
         // when our Unix-epoch-based approach stops working Kappa
-        let other = match Self::convert_epoch_timestamp::<E>(other.get_timestamp_raw()) {
+        let other = match Self::convert_epoch_timestamp::<E>(other.timestamp_raw()) {
             Ok(other) => other,
             Err(_) => return Some(cmp::Ordering::Less),
         };
@@ -362,7 +366,7 @@ where
     fn partial_cmp(&self, other: &SnowflakeComparator) -> Option<cmp::Ordering> {
         // Similarly to the `PartialOrd` implementation above, our timestamp is guaranteed to be greater than the
         // comparator if it would overflow a u64
-        let timestamp = match SnowflakeComparator::convert_epoch_timestamp::<E>(self.get_timestamp_raw()) {
+        let timestamp = match SnowflakeComparator::convert_epoch_timestamp::<E>(self.timestamp_raw()) {
             Ok(timestamp) => timestamp,
             Err(_) => return Some(cmp::Ordering::Greater),
         };
@@ -473,13 +477,13 @@ mod tests {
                 assert!(!Self::exceeds_timestamp(timestamp) && !Self::exceeds_sequence_number(sequence_number));
                 timestamp << 32 | sequence_number
             }
-            fn get_timestamp(input: u64) -> u64 {
+            fn timestamp(input: u64) -> u64 {
                 input >> 32
             }
             fn exceeds_timestamp(input: u64) -> bool {
                 input > u32::MAX as u64
             }
-            fn get_sequence_number(input: u64) -> u64 {
+            fn sequence_number(input: u64) -> u64 {
                 input & u32::MAX as u64
             }
             fn exceeds_sequence_number(input: u64) -> bool {

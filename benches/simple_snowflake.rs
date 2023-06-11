@@ -42,7 +42,7 @@ impl Layout for MySnowflakeParams {
         timestamp << SEQUENCE_BITS | sequence_number
     }
     #[inline]
-    fn get_timestamp(input: u64) -> u64 {
+    fn timestamp(input: u64) -> u64 {
         input >> SEQUENCE_BITS
     }
     #[inline]
@@ -50,7 +50,7 @@ impl Layout for MySnowflakeParams {
         input >= 1 << TIMESTAMP_BITS
     }
     #[inline]
-    fn get_sequence_number(input: u64) -> u64 {
+    fn sequence_number(input: u64) -> u64 {
         input & SEQUENCE_MASK
     }
     #[inline]

@@ -139,6 +139,29 @@ planning to use Snowdon in a production environment, you should verify that our 
 If you find any bugs or potential efficiency improvements, please open an issue as described in
 `CONTRIBUTING.md`<!-- TODO [CONTRIBUTING.md](CONTRIBUTING.md) -->.
 
+## Benchmarks
+
+Snowdon provides benchmarks in `benches`. You can run them with
+
+```shell
+cargo bench --all-features
+```
+
+When running the test on an AMD Ryzen 9 5900X with Linux 6.3.5, we get the following results:
+
+| Benchmark                        | Average time per snowflake (in ns) | Estimated snowflake IDs per second |
+|----------------------------------|------------------------------------|------------------------------------|
+| Lock-free generator (sequential) | 29.188                             | 34260655                           |
+| Blocking generator (sequential)  | 29.038                             | 34437633                           |
+| Lock-free generator (10 threads) | 84.954                             | 11771076                           |
+| Blocking generator (10 threads)  | 1594.4                             | 627195                             |
+
+The last two entries in the table above are for an extreme scenario where ten threads concurrently generate snowflakes
+in a loop. It's meant to simulate severe contention between threads, and with most applications, the actual times per
+snowflake should be closer to the sequential benchmarks. Moreover, most implementations outperform the limitations of
+snowflake layouts with 12 sequence number bits. Under almost all circumstances, the generators are fast enough for a
+regular application's ID requirements. This includes applications that need to generate more than 100000 IDs per second.
+
 ## Licence
 
 Copyright (C) 2023 Archer <archer@nefarious.dev>

@@ -184,6 +184,13 @@ impl SnowflakeComparator {
     ///
     /// If you want to create a comparator from a snowflake's timestamp, you should use the [`TryFrom`] implementation
     /// instead.
+    ///
+    /// ## From implementation
+    ///
+    /// Unlike [`from_system_time`](Self::from_system_time), there's no `From<u64>` implementation for snowflake
+    /// comparators. While this implementation would be fairly straightforward, we intentionally don't provide it, as
+    /// it's misleading in most cases. Without a clear name that mentions that we're expecting a "raw timestamp", users
+    /// might expect the `From` implementation to take an integer representation of a snowflake as the parameter.
     pub fn from_raw_timestamp(timestamp: u64) -> Self {
         Self { timestamp }
     }
@@ -264,6 +271,18 @@ where
     /// ```
     fn try_from(value: Snowflake<L, E>) -> std::result::Result<Self, Self::Error> {
         SnowflakeComparator::from_timestamp::<E>(L::timestamp(value.inner))
+    }
+}
+
+impl TryFrom<SystemTime> for SnowflakeComparator {
+    type Error = Error;
+
+    /// Tries to create a snowflake comparator for the given system time.
+    ///
+    /// This function returns an error if `value` exceeds the underlying data type of the comparator. Refer to
+    /// [`SnowflakeComparator::from_system_time`] for more information.
+    fn try_from(value: SystemTime) -> std::result::Result<Self, Self::Error> {
+        Self::from_system_time(value)
     }
 }
 
@@ -415,10 +434,23 @@ mod tests {
             SnowflakeComparator::from_system_time(SystemTime::UNIX_EPOCH - Duration::from_millis(1)).unwrap_err(),
             "snowflake comparator didn't detect a \"negative\" timestamp"
         );
+        assert_eq!(
+            Error::InvalidEpoch,
+            SnowflakeComparator::try_from(SystemTime::UNIX_EPOCH - Duration::from_millis(1)).unwrap_err(),
+            "snowflake comparator didn't detect a \"negative\" timestamp"
+        );
         // Timestamps that exceed the underlying data type should return an error as well
         assert_eq!(
             Error::FatalSnowflakeExhaustion,
             SnowflakeComparator::from_system_time(
+                SystemTime::UNIX_EPOCH + Duration::from_millis(u64::MAX) + Duration::from_millis(1)
+            )
+            .unwrap_err(),
+            "snowflake comparator accepted timestamp that exceeds its data type"
+        );
+        assert_eq!(
+            Error::FatalSnowflakeExhaustion,
+            SnowflakeComparator::try_from(
                 SystemTime::UNIX_EPOCH + Duration::from_millis(u64::MAX) + Duration::from_millis(1)
             )
             .unwrap_err(),

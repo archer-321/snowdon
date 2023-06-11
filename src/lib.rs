@@ -1493,6 +1493,22 @@ where
     }
 }
 
+impl<L, E> TryFrom<u64> for Snowflake<L, E>
+where
+    L: Layout,
+    E: Epoch,
+{
+    type Error = Error;
+
+    /// Tries to create a snowflake using the given integer representation.
+    ///
+    /// Like [`Snowflake::from_raw`], this returns an error if the integer representation isn't valid for this
+    /// snowflake's [`Layout`]. Refer to `from_raw`'s documentation for more information.
+    fn try_from(value: u64) -> std::result::Result<Self, Self::Error> {
+        Self::from_raw(value)
+    }
+}
+
 // Skip coverage: We don't test the coverage of our unit tests
 #[cfg(test)]
 pub mod snowflake_tests {
@@ -1543,11 +1559,23 @@ pub mod snowflake_tests {
             "`Snowflake::from_raw` allowed creating an invalid snowflake"
         );
         assert_eq!(
+            Error::InvalidSnowflake,
+            SimpleSnowflake::try_from(1 << 63).unwrap_err(),
+            "`Snowflake::try_from` allowed creating an invalid snowflake"
+        );
+        assert_eq!(
             (1 << 63) - 1,
             SimpleSnowflake::from_raw((1 << 63) - 1)
                 .expect("`Snowflake::from_raw` rejected a valid snowflake")
                 .into_inner(),
             "`Snowflake::from_raw` produced an unrelated snowflake"
+        );
+        assert_eq!(
+            (1 << 63) - 1,
+            SimpleSnowflake::try_from((1 << 63) - 1)
+                .expect("`Snowflake::try_from` rejected a valid snowflake")
+                .into_inner(),
+            "`Snowflake::try_from` produced an unrelated snowflake"
         );
     }
 

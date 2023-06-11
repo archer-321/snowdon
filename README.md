@@ -143,9 +143,14 @@ If you find any bugs or potential efficiency improvements, please open an issue 
 
 Copyright (C) 2023 Archer <archer@nefarious.dev>
 
-Snowdon is licensed under the Apache License 2.0 (the "Licence"; SPDX-License-Identifier: Apache-2.0). You can find a
-copy of the Licence in [COPYING](COPYING) or online at <https://www.apache.org/licenses/LICENSE-2.0>.
+Snowdon is licensed under either of
 
-Unless required by applicable law or agreed to in writing, software distributed under the Licence is distributed on an
-"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the Licence for the specific
-language governing permissions and limitations under the Licence.
+- Apache License 2.0 (SPDX-License-Identifier: Apache-2.0)<br/>
+  [COPYING-APACHE](COPYING-APACHE) or <https://www.apache.org/licenses/LICENSE-2.0>
+- MIT License (Expat License; SPDX-License-Identifier: MIT)<br/>
+  [COPYING-MIT](COPYING-MIT) or <https://opensource.org/license/mit/>
+
+at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as
+defined in the Apache-2.0 licence, shall be dual licensed as above, without any additional terms or conditions.

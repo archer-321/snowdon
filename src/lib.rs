@@ -1414,16 +1414,6 @@ where
     pub fn get_sequence_number(&self) -> u64 {
         L::get_sequence_number(self.inner)
     }
-
-    /// Returns a [`SnowflakeComparator`] for this snowflake's timestamp.
-    ///
-    /// If the comparator's underlying data type can't represent this snowflake's timestamp, this returns an
-    /// [`Error::FatalSnowflakeExhaustion`] instead. As explained in [`SnowflakeComparator`'s
-    /// documentation](SnowflakeComparator#limitations), you should be able to unwrap this method's result if your code
-    /// doesn't need to deal with timestamps this large.
-    pub fn get_comparator(&self) -> Result<SnowflakeComparator> {
-        SnowflakeComparator::from_timestamp::<E>(L::get_timestamp(self.inner))
-    }
 }
 
 impl<L, E> Clone for Snowflake<L, E>
@@ -1507,7 +1497,7 @@ where
 #[cfg(test)]
 pub mod snowflake_tests {
     use crate::system_time_mock::SystemTime;
-    use crate::{Epoch, Error, Layout, Snowflake};
+    use crate::{Epoch, Error, Layout, Snowflake, SnowflakeComparator};
     use std::cmp::{max, max_by, min, min_by, Ordering};
     use std::fmt::Debug;
     use std::time::Duration;
@@ -1643,9 +1633,9 @@ pub mod snowflake_tests {
         );
         assert!(foo < bar && bar < baz);
         let (foo, bar, baz) = (
-            foo.get_comparator().unwrap(),
-            bar.get_comparator().unwrap(),
-            baz.get_comparator().unwrap(),
+            SnowflakeComparator::try_from(foo).unwrap(),
+            SnowflakeComparator::try_from(bar).unwrap(),
+            SnowflakeComparator::try_from(baz).unwrap(),
         );
         assert!(foo < bar && bar < baz, "snowflakes returned unrelated comparators");
     }

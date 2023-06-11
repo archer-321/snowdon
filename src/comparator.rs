@@ -28,7 +28,7 @@ use std::time::SystemTime;
 /// still be smaller.
 ///
 /// To compare a snowflake with a given timestamp, simply create a comparator using
-/// [`from_system_time`](Self::from_system_time) or [`Snowflake::get_comparator`].
+/// [`from_system_time`](Self::from_system_time) or `Snowflake`'s [`TryFrom`] implementation.
 ///
 /// # Limitations
 ///
@@ -57,7 +57,7 @@ impl SnowflakeComparator {
     /// If you're sure your timestamp doesn't precede the Unix epoch and doesn't exceed the limits discussed in the
     /// [structure documentation](Self#limitations), you can safely unwrap this function's result.
     ///
-    /// If you want to create a comparator from a snowflake's timestamp, you should use [`Snowflake::get_comparator`]
+    /// If you want to create a comparator from a snowflake's timestamp, you should use the [`TryFrom`] implementation
     /// instead.
     ///
     /// # Example
@@ -119,7 +119,7 @@ impl SnowflakeComparator {
     /// If you want to avoid passing your snowflake epoch to this function everytime you compare snowflakes with a
     /// timestamp, you might want to use [`from_system_time`](Self::from_system_time) instead.
     ///
-    /// You should consider using [`Snowflake::get_comparator`] instead if you're creating a comparator using another
+    /// You should consider using the [`TryFrom`] implementation instead if you're creating a comparator using another
     /// snowflake's timestamp.
     ///
     /// # Example
@@ -147,8 +147,8 @@ impl SnowflakeComparator {
     /// .unwrap();
     /// assert_eq!(snowflake, comparator);
     /// // Instead of constructing the comparator ourselves, we can use
-    /// // `get_comparator`:
-    /// assert_eq!(comparator, snowflake.get_comparator().unwrap());
+    /// // the comparator's `TryFrom` implementation:
+    /// assert_eq!(comparator, SnowflakeComparator::try_from(snowflake).unwrap());
     /// // Create a comparator for the first second of 2022
     /// let comparator =
     ///     SnowflakeComparator::from_timestamp::<TwitterEpoch>(352160225343).unwrap();
@@ -182,7 +182,7 @@ impl SnowflakeComparator {
     /// Usually, you shouldn't use this function directly. Instead, use [`from_system_time`](Self::from_system_time) or
     /// [`from_timestamp`](Self::from_timestamp) to get a snowflake comparator that works with your snowflakes.
     ///
-    /// If you want to create a comparator from a snowflake's timestamp, you should use [`Snowflake::get_comparator`]
+    /// If you want to create a comparator from a snowflake's timestamp, you should use the [`TryFrom`] implementation
     /// instead.
     pub fn from_raw_timestamp(timestamp: u64) -> Self {
         Self { timestamp }
@@ -203,6 +203,63 @@ impl SnowflakeComparator {
         E::millis_since_unix()
             .checked_add(timestamp)
             .ok_or(Error::FatalSnowflakeExhaustion)
+    }
+}
+
+impl<L, E> TryFrom<Snowflake<L, E>> for SnowflakeComparator where L: Layout, E: Epoch {
+    type Error = Error;
+
+    /// Tries to convert the given snowflake into a snowflake comparator.
+    ///
+    /// The conversion can fail if the comparator's underlying data type doesn't support the snowflake's timestamp.
+    /// However, this only occurs for timestamps that are roughly 585 million years after the Unix epoch. Unless you
+    /// know that your application has to deal with timestamps this large, you can safely unwrap the result returned by
+    /// this conversion.
+    ///
+    /// ## Converting from references
+    ///
+    /// Snowflakes implement [`Copy`], so you can even use this conversion method with references:
+    ///
+    /// ```
+    /// use snowdon::{Epoch, Layout, Snowflake, SnowflakeComparator};
+    /// # struct MyParams;
+    /// # impl Layout for MyParams {
+    /// #     fn construct_snowflake(timestamp: u64, sequence_number: u64) -> u64 {
+    /// #         unimplemented!()
+    /// #     }
+    /// #     fn get_timestamp(input: u64) -> u64 {
+    /// #         input >> 22
+    /// #     }
+    /// #     fn exceeds_timestamp(input: u64) -> bool {
+    /// #         unimplemented!()
+    /// #     }
+    /// #     fn get_sequence_number(input: u64) -> u64 {
+    /// #         unimplemented!()
+    /// #     }
+    /// #     fn exceeds_sequence_number(input: u64) -> bool {
+    /// #         unimplemented!()
+    /// #     }
+    /// #     fn is_valid_snowflake(input: u64) -> bool {
+    /// #         true
+    /// #     }
+    /// # }
+    /// # impl Epoch for MyParams {
+    /// #     fn millis_since_unix() -> u64 {
+    /// #         0
+    /// #     }
+    /// # }
+    ///
+    /// let snowflake = Snowflake::<MyParams, MyParams>::from_raw(100 << 22)?;
+    ///
+    /// fn foo(snowflake: &Snowflake<MyParams, MyParams>) {
+    ///     let _ = SnowflakeComparator::try_from(*snowflake).unwrap();
+    /// }
+    ///
+    /// foo(&snowflake);
+    /// # Ok::<(), snowdon::Error>(())
+    /// ```
+    fn try_from(value: Snowflake<L, E>) -> std::result::Result<Self, Self::Error> {
+        SnowflakeComparator::from_timestamp::<E>(L::get_timestamp(value.inner))
     }
 }
 

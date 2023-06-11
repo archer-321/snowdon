@@ -17,7 +17,7 @@ exclude = ["/spin", "/.rustfmt-nightly.toml"]
 serde = { version = "^1.0", features = ["derive"], optional = true }
 
 [dev-dependencies]
-criterion = "^0.4"
+criterion = "^0.5"
 lazy_static = "^1.4"
 parking_lot = "^0.12"
 

@@ -109,6 +109,9 @@ Our current minimum supported Rust version is `1.56.1`. We might increase our MS
 so if there's a good reason for it. Only having a few dependencies that each have a stable MSRV policy, we shouldn't
 need to increase our MSRV transitively because of a dependency update.
 
+Note that benchmarks and tests require a higher Rust version, as they add dependencies that don't support the MSRV
+above.
+
 ## Correctness
 
 As detailed in [Project goals and non-goals](#project-goals-and-non-goals), Snowdon aims to be a **correct**

@@ -28,7 +28,7 @@ loom = "^0.5"
 default = ["blocking"]
 lock-free = []
 blocking = []
-serde = ["dep:serde"]
+# The `serde` feature is implicitly specified by the optional depencency
 
 [[test]]
 name = "loom_generator"

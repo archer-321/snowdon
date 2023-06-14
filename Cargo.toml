@@ -24,7 +24,7 @@ parking_lot = "^0.12"
 loom = "^0.5"
 
 [features]
-default = ["blocking"]
+default = ["lock-free"]
 lock-free = []
 blocking = []
 # The `serde` feature is implicitly specified by the optional depencency

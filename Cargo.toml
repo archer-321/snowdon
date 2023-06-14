@@ -1,13 +1,13 @@
 [package]
 name = "snowdon"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Archer <archer@nefarious.dev>"]
 edition = "2021"
 rust-version = "1.56.1"
 description = "A lightweight thread-safe snowflake ID implementation for Rust"
 readme = "README.md"
 repository = "https://github.com/archer-321/snowdon"
-license = "Apache-2.0"
+license = "Apache-2.0 OR MIT"
 keywords = ["snowflake", "id", "lock-free", "lightweight"]
 categories = ["concurrency", "web-programming"]
 exclude = ["/spin", "/.rustfmt-nightly.toml"]

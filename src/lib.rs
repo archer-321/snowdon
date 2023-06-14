@@ -537,8 +537,7 @@ where
                     });
                 }
                 // Skip coverage: With our current testing setup, it's essentially impossible to reach this state
-                // deterministically. We can consider re-enabling this if we ever use something like `loom` for our
-                // verification (TODO).
+                // deterministically.
                 Err(current_value) => {
                     // Our CAS operation failed; store the current value and try again
                     last_snowflake = current_value

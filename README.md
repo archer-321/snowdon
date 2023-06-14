@@ -71,13 +71,13 @@ If you want to use the lock-free implementation, it's recommended to disable the
 by disabling this crate's default features:
 
 ```toml
-snowdon = { version = "^0.1", default-features = false, features = ["lock-free"]}
+snowdon = { version = "^0.1", default-features = false, features = ["lock-free"] }
 ```
 
 To enable Serde support for snowflakes and snowflake comparators, enable the `serde` feature:
 
 ```toml
-snowdon = { version = "^0.1", default-features = false, features = ["serde"]}
+snowdon = { version = "^0.1", default-features = false, features = ["serde"] }
 ```
 
 The types of this library are designed to make it hard to misuse them. Specifically, snowflakes have two type parameters
@@ -136,8 +136,8 @@ implementation.
 **Please note** that while we *try* to provide a correct and efficient implementation, there's no mathematical proof
 that Snowdon's implementation is indeed correct. We do our best to ensure that our code is correct, but if you're
 planning to use Snowdon in a production environment, you should verify that our implementation meets your expectations.
-If you find any bugs or potential efficiency improvements, please open an issue as described in
-`CONTRIBUTING.md`<!-- TODO [CONTRIBUTING.md](CONTRIBUTING.md) -->.
+If you find any bugs or potential efficiency improvements, please open an issue as described
+in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Benchmarks
 

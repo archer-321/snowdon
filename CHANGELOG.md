@@ -10,6 +10,7 @@
   I.e. the `blocking` feature is now turned off by default, and `lock-free` is enabled. If your code uses
   `Generator::generate_blocking()`, you'll have to enable the `blocking` feature explicitly. However, unless you want to
   keep using the blocking implementation, no changes are required if you use `Generator::generate`.
+- Snowflakes are now serialized as a u64 instead of a structure.
 
 # Release 0.1.0
 

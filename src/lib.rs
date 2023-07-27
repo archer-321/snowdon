@@ -1337,6 +1337,7 @@ pub trait Epoch {
 /// ```
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(transparent))]
 #[repr(transparent)]
 pub struct Snowflake<L, E>
 where
@@ -1346,6 +1347,7 @@ where
     inner: u64,
     // Skip coverage: This is a ZST. It's, by definition, going to disappear at compile time, so we can't get any
     // coverage for this.
+    #[cfg_attr(feature = "serde", serde(skip))]
     _marker: PhantomData<(L, E)>,
     // End skip coverage
 }

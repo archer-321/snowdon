@@ -64,20 +64,20 @@ However, we define the following non-goals to outline what Snowdon is *not*:
 To use this crate, simply add the following line to your `Cargo.toml` file in the `dependencies` table:
 
 ```toml
-snowdon = "^0.1"
+snowdon = "^0.2"
 ```
 
 If you want to use the lock-free implementation, it's recommended to disable the `blocking` feature (enabled by default)
 by disabling this crate's default features:
 
 ```toml
-snowdon = { version = "^0.1", default-features = false, features = ["lock-free"] }
+snowdon = { version = "^0.2", default-features = false, features = ["lock-free"] }
 ```
 
 To enable Serde support for snowflakes and snowflake comparators, enable the `serde` feature:
 
 ```toml
-snowdon = { version = "^0.1", default-features = false, features = ["serde"] }
+snowdon = { version = "^0.2", default-features = false, features = ["serde"] }
 ```
 
 The types of this library are designed to make it hard to misuse them. Specifically, snowflakes have two type parameters

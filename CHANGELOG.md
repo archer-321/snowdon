@@ -1,8 +1,9 @@
-# Release 0.2.0 (WIP)
+# Release 0.2.0
 
 ## Features
 
 - `Cargo.toml` now correctly includes both licences (`Apache-2.0 OR MIT`) in the `license` field.
+- A new `CHANGELOG.md` file lists (breaking) changes between versions.
 
 ## Breaking changes
 

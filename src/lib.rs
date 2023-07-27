@@ -34,7 +34,7 @@
 //! ```toml
 //! [dependencies]
 //! # ...
-//! snowdon = { version = "^0.1", features = ["serde"] }
+//! snowdon = { version = "^0.2", features = ["serde"] }
 //! ```
 //!
 //! Note that [`Generator`] *doesn't* implement (de-)serialization even if the feature is enabled. A generator's state
